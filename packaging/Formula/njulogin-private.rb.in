@@ -1,14 +1,51 @@
 # frozen_string_literal: true
 
+class PrivateGitHubReleaseAssetDownloadStrategy < AbstractFileDownloadStrategy
+  include Utils::Curl
+
+  def fetch(timeout: nil)
+    token = ENV.fetch("HOMEBREW_GITHUB_API_TOKEN")
+    lock = DownloadLock.new(temporary_path)
+    begin
+      lock.lock
+      unless cached_location.exist?
+        temporary_path.dirname.mkpath
+        curl_download(
+          "--header", "Accept: application/octet-stream",
+          "--header", "Authorization: Bearer #{token}",
+          "--header", "X-GitHub-Api-Version: 2022-11-28",
+          url,
+          to:          temporary_path,
+          try_partial: false,
+          timeout:,
+          secrets:     [token]
+        )
+        cached_location.dirname.mkpath
+        temporary_path.rename(cached_location.to_s)
+      end
+      create_symlink_to_cached_download(cached_location)
+    ensure
+      lock.unlock(unlink: true)
+    end
+  end
+
+  def clear_cache
+    super
+    rm temporary_path if temporary_path.exist?
+  end
+
+  private
+
+  def resolved_url_and_basename
+    [url, "#{name}-#{version}.tar.gz"]
+  end
+end
+
 class Njulogin < Formula
   desc "Authenticate local or remote network paths with the NJU portal"
   homepage "https://github.com/soundadam/homebrew-tap"
   url "https://api.github.com/repos/soundadam/njulogin/releases/assets/@ASSET_ID@",
-      headers: [
-        "Accept: application/octet-stream",
-        "Authorization: Bearer #{ENV.fetch("HOMEBREW_GITHUB_API_TOKEN")}",
-        "X-GitHub-Api-Version: 2022-11-28",
-      ]
+      using: PrivateGitHubReleaseAssetDownloadStrategy
   version "@VERSION@"
   sha256 "@SHA256@"
   license "MIT"

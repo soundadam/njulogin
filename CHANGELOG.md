@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 - 2026-07-27
+
+- Replace the private Release asset Formula headers with a dedicated Homebrew
+  download strategy that reads `HOMEBREW_GITHUB_API_TOKEN` only at fetch time,
+  masks it as a secret, and passes strict online audit.
+- Keep `v0.1.0` immutable after its post-tag Formula audit exposed the issue;
+  publish the corrected Homebrew distribution from `v0.1.1`.
+
 ## 0.1.0 - 2026-07-27
 
 - Extract the `p.nju.edu.cn` client from the former `adam-network-tools`
