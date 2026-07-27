@@ -1,0 +1,17 @@
+/.build/
+/bin/
+/dist/
+/coverage/
+/.tools/
+/.DS_Store
+*.credential
+*.secret
+*.token
+*.key
+*.pem
+.env
+.env.*
+auth.json
+__pycache__/
+*.pyc
+/packaging/Formula/njulogin.rb

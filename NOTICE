@@ -1,0 +1,12 @@
+Copyright (c) 2026 Adam.
+
+Licensed under the MIT License. See LICENSE for details.
+
+The portal operation model and interoperability behavior were informed by:
+
+  Do1e/NJUlogin
+  Copyright (c) 2022 Do1e
+  https://github.com/Do1e/NJUlogin
+  MIT License
+
+No upstream Python source or binary is vendored in this repository.

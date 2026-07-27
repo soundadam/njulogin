@@ -1,0 +1,24 @@
+# frozen_string_literal: true
+
+class Njulogin < Formula
+  desc "Authenticate local or remote network paths with the NJU portal"
+  homepage "https://github.com/soundadam/njulogin"
+  url "@URL@"
+  version "@VERSION@"
+  sha256 "@SHA256@"
+  license "MIT"
+
+  depends_on "go" => :build
+  depends_on macos: :ventura
+
+  def install
+    ldflags = "-s -w -X main.version=#{version}"
+    system "go", "build", "-trimpath", "-ldflags", ldflags,
+           "-o", bin/"njulogin", "./cmd/njulogin"
+  end
+
+  test do
+    assert_match "njulogin #{version}", shell_output("#{bin}/njulogin version")
+    assert_match "Usage:", shell_output("#{bin}/njulogin help 2>&1")
+  end
+end

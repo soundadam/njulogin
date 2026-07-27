@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "iteration/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Check repository security invariants
+        run: |
+          set -euo pipefail
+          secret_pattern='-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}'
+          if git grep -nE -e "$secret_pattern" -- .; then
+            echo "Potential credential material found in tracked files." >&2
+            exit 1
+          fi
+          if git grep -nE 'qr_url=|"-w",[[:space:]]*password' -- cmd tools; then
+            echo "Credential or QR material must not be emitted or placed in arguments." >&2
+            exit 1
+          fi
+
+      - name: Run offline checks
+        run: make check
+
+      - name: Build release candidate
+        run: make build VERSION=0.0.0-ci
+
+      - name: Smoke-test release candidate
+        run: |
+          set -euo pipefail
+          test "$(./bin/njulogin version)" = "njulogin 0.0.0-ci"
+          ./bin/njulogin help 2>&1 | grep -q "Usage:"
