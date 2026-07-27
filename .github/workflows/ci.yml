@@ -41,10 +41,9 @@ jobs:
       - name: Verify pinned Go toolchain
         run: |
           set -euo pipefail
-          echo "/usr/local/libexec/njulogin-ci-bin" >>"$GITHUB_PATH"
           go version
           test "$(go env GOVERSION)" = "go1.25.12"
-          /usr/local/libexec/njulogin-ci-bin/ruby --version
+          ruby --version
 
       - name: Install pinned validation tools
         run: |
