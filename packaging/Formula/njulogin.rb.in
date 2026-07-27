@@ -4,7 +4,6 @@ class Njulogin < Formula
   desc "Authenticate local or remote network paths with the NJU portal"
   homepage "https://github.com/soundadam/njulogin"
   url "@URL@"
-  version "@VERSION@"
   sha256 "@SHA256@"
   license "MIT"
 
@@ -15,10 +14,15 @@ class Njulogin < Formula
     ldflags = "-s -w -X main.version=#{version}"
     system "go", "build", "-trimpath", "-ldflags", ldflags,
            "-o", bin/"njulogin", "./cmd/njulogin"
+    doc.install "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "third_party_licenses"
   end
 
   test do
     assert_match "njulogin #{version}", shell_output("#{bin}/njulogin version")
     assert_match "Usage:", shell_output("#{bin}/njulogin help 2>&1")
+    assert_path_exists doc/"THIRD_PARTY_NOTICES.md"
+    assert_path_exists doc/"third_party_licenses/github.com_skip2_go-qrcode_LICENSE"
+    assert_path_exists doc/"third_party_licenses/golang.org_x_term_LICENSE"
+    assert_path_exists doc/"third_party_licenses/golang.org_x_sys_LICENSE"
   end
 end

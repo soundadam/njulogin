@@ -3,41 +3,48 @@ package main
 import (
 	"bufio"
 	"bytes"
-	_ "embed"
+	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
-	"strconv"
+	"runtime/debug"
 	"strings"
 	"time"
+	"unicode"
 
 	qrcode "github.com/skip2/go-qrcode"
 	"golang.org/x/term"
 )
 
 const (
-	portalBaseURL          = "https://p.nju.edu.cn"
-	casBaseURL             = "https://authserver.nju.edu.cn/authserver"
-	casDestURL             = "https://p.nju.edu.cn:443/api/cas/getinfo/&renew=true"
-	defaultKeychainService = "NJUlogin"
+	portalBaseURL        = "https://p.nju.edu.cn"
+	casBaseURL           = "https://authserver.nju.edu.cn/authserver"
+	casDestURL           = "https://p.nju.edu.cn:443/api/cas/getinfo/&renew=true"
+	maxResponseBodyBytes = 1 << 20
+	remoteQRLoginTimeout = 60 * time.Second
+	maxConnectTimeout    = 300
+	maxRequestTimeout    = 3600
 )
 
 var userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 var version = "dev"
-
-//go:embed remote_qr_bootstrap.py
-var remoteQRBootstrap string
+var postconditionTimeout = 10 * time.Second
+var postconditionPollInterval = 250 * time.Millisecond
+var passwordCommandTimeout = 15 * time.Second
+var localCASBaseURL = casBaseURL
+var localCASDestURL = casDestURL
+var credentialPrompt = promptSecret
 
 type portalClient struct {
 	baseURL string
@@ -46,12 +53,11 @@ type portalClient struct {
 
 type portalResponse struct {
 	ReplyCode int             `json:"reply_code"`
-	ReplyMsg  string          `json:"reply_msg"`
 	Results   json.RawMessage `json:"results"`
 }
 
 type getInfoResults struct {
-	Rows []sessionRow `json:"rows"`
+	Rows *[]sessionRow `json:"rows"`
 }
 
 type sessionRow struct {
@@ -64,7 +70,7 @@ type sessionRow struct {
 }
 
 type listResults struct {
-	Rows []map[string]any `json:"rows"`
+	Rows *[]map[string]any `json:"rows"`
 }
 
 type loginFields struct {
@@ -77,15 +83,14 @@ type loginFields struct {
 
 type remoteSettings struct {
 	BaseURL        string
-	Proxy          string
 	Insecure       bool
 	ConnectTimeout int
 	MaxTime        int
 }
 
 type credentialConfig struct {
-	Username        string `json:"username"`
-	KeychainService string `json:"keychain_service"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type menuOption struct {
@@ -93,18 +98,93 @@ type menuOption struct {
 	Label string
 }
 
+type usageError struct {
+	message string
+}
+
+func (err usageError) Error() string {
+	return err.message
+}
+
+func usagef(format string, args ...any) error {
+	return usageError{message: fmt.Sprintf(format, args...)}
+}
+
+func exitCodeForError(err error) int {
+	var syntax usageError
+	if errors.As(err, &syntax) {
+		return 2
+	}
+	return 1
+}
+
+func requireNoPositionals(flags *flag.FlagSet) error {
+	if flags.NArg() != 0 {
+		return usagef("unexpected positional arguments for %s: %s", flags.Name(), strings.Join(flags.Args(), " "))
+	}
+	return nil
+}
+
+func requireNoArgs(command string, args []string) error {
+	if len(args) != 0 {
+		return usagef("%s does not accept arguments", command)
+	}
+	return nil
+}
+
 func newPortalClient(baseURL string) (*portalClient, error) {
+	if err := validatePortalBaseURL(baseURL); err != nil {
+		return nil, err
+	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+		transport.TLSClientConfig.MinVersion = tls.VersionTLS12
+	}
 	return &portalClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{
-			Timeout: 15 * time.Second,
-			Jar:     jar,
+			Timeout:   15 * time.Second,
+			Jar:       jar,
+			Transport: transport,
 		},
 	}, nil
+}
+
+func validatePortalBaseURL(value string) error {
+	if value == "" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return usagef("invalid portal base URL: %v", err)
+	}
+	if parsed.User != nil {
+		return usagef("portal base URL must not contain embedded credentials")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return usagef("portal base URL must not contain a query or fragment")
+	}
+	if parsed.Scheme == "https" && parsed.Host != "" {
+		return nil
+	}
+	if parsed.Scheme == "http" && parsed.Host != "" {
+		host := parsed.Hostname()
+		if host == "localhost" {
+			return nil
+		}
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			return nil
+		}
+	}
+	return usagef("portal base URL must use https, except for an HTTP loopback test server")
 }
 
 func (c *portalClient) get(path string) ([]byte, error) {
@@ -133,15 +213,15 @@ func (c *portalClient) postJSON(path string, body any) ([]byte, error) {
 func do(req *http.Request, client *http.Client) ([]byte, error) {
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("HTTP request failed")
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	data, err := readResponseBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("%s returned HTTP %d", req.URL.String(), resp.StatusCode)
+		return nil, fmt.Errorf("HTTP request returned status %d", resp.StatusCode)
 	}
 	return data, nil
 }
@@ -153,15 +233,26 @@ func doWithoutRedirects(req *http.Request, client *http.Client) ([]byte, error) 
 	}
 	resp, err := clone.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("HTTP request failed")
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	data, err := readResponseBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 399 {
-		return nil, fmt.Errorf("%s returned HTTP %d", req.URL.String(), resp.StatusCode)
+		return nil, fmt.Errorf("HTTP request returned status %d", resp.StatusCode)
+	}
+	return data, nil
+}
+
+func readResponseBody(reader io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, maxResponseBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxResponseBodyBytes {
+		return nil, fmt.Errorf("HTTP response exceeds %d bytes", maxResponseBodyBytes)
 	}
 	return data, nil
 }
@@ -175,14 +266,26 @@ func getJSON(path string) (*portalResponse, error) {
 }
 
 func parsePortalResponse(data []byte) (*portalResponse, error) {
-	var response portalResponse
-	if err := json.Unmarshal(data, &response); err != nil {
+	var wire struct {
+		ReplyCode *int            `json:"reply_code"`
+		Results   json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
 		return nil, err
 	}
-	return &response, nil
+	if wire.ReplyCode == nil {
+		return nil, errors.New("portal response is missing reply_code")
+	}
+	return &portalResponse{
+		ReplyCode: *wire.ReplyCode,
+		Results:   wire.Results,
+	}, nil
 }
 
 func getPortalResponse(client *http.Client, baseURL, path string) (*portalResponse, error) {
+	if err := validatePortalBaseURL(baseURL); err != nil {
+		return nil, err
+	}
 	portal := &portalClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http:    client,
@@ -192,6 +295,22 @@ func getPortalResponse(client *http.Client, baseURL, path string) (*portalRespon
 		return nil, err
 	}
 	return parsePortalResponse(data)
+}
+
+func quickRowsWithClient(client *http.Client, baseURL string) ([]map[string]any, error) {
+	response, err := getPortalResponse(client, baseURL, fmt.Sprintf("/api/portal/v1/quicklogin/domain/default?_=%d", time.Now().UnixMilli()))
+	if err != nil {
+		return nil, err
+	}
+	return quickRowsFromResponse(response)
+}
+
+func onlineRowsWithClient(client *http.Client, baseURL string) ([]map[string]any, error) {
+	response, err := getPortalResponse(client, baseURL, fmt.Sprintf("/api/selfservice/v1/online?page=1&limit=10000&_=%d", time.Now().UnixMilli()))
+	if err != nil {
+		return nil, err
+	}
+	return onlineRowsFromResponse(response)
 }
 
 func statusCommand() error {
@@ -206,17 +325,19 @@ func loginCommand(args []string) error {
 	flags := flag.NewFlagSet("login", flag.ExitOnError)
 	username := flags.String("username", "", "NJU username")
 	passwordCommand := flags.String("password-command", "", "command that prints the credential to stdout")
-	keychainService := flags.String("keychain-service", "", "macOS Keychain generic-password service name")
 	ask := flags.Bool("ask", false, "read credential interactively without echo")
 	stdin := flags.Bool("password-stdin", false, "read credential from stdin")
 	addQuick := flags.String("add-quick", "", "add current device as a quick-login device after login")
 	_ = flags.Parse(args)
-	if err := applyCredentialDefaults(username, keychainService, *passwordCommand, *ask, *stdin); err != nil {
+	if err := requireNoPositionals(flags); err != nil {
 		return err
 	}
-	secret, err := resolveSecret(*passwordCommand, *keychainService, *username, *ask, *stdin)
+	secret, err := resolveLoginCredential(username, *passwordCommand, *ask, *stdin)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(secret) == "" {
+		return usagef("empty password")
 	}
 	client, err := newPortalClient(envDefault("NJU_PORTAL_BASE_URL", portalBaseURL))
 	if err != nil {
@@ -229,38 +350,47 @@ func loginCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	printOperationResponse(data)
+	if err := requireOperationSuccess(data); err != nil {
+		return err
+	}
+	response, err := waitForAuthenticationState(func() (*portalResponse, error) {
+		return getPortalResponse(client.http, client.baseURL, fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
+	}, true, postconditionTimeout)
+	if err != nil {
+		return err
+	}
 	if *addQuick != "" {
 		data, err = client.postJSON("/api/portal/v1/quicklogin/bind/default", map[string]string{"device": *addQuick})
 		if err != nil {
 			return err
 		}
-		printOperationResponse(data)
+		if err := requireOperationSuccess(data); err != nil {
+			return err
+		}
+		if err := waitForRows(
+			func() ([]map[string]any, error) { return quickRowsWithClient(client.http, client.baseURL) },
+			func(rows []map[string]any) bool { return quickNamePresent(rows, *addQuick) },
+			postconditionTimeout,
+			"quick-login binding was not observed before timeout",
+		); err != nil {
+			return err
+		}
+	}
+	if err := printStatusResponse(response); err != nil {
+		return err
+	}
+	if *addQuick != "" {
+		fmt.Println("quick_add_result=success")
 	}
 	return nil
 }
 
 func setupCommand(args []string) error {
-	if runtime.GOOS != "darwin" {
-		return errors.New("setup requires macOS Keychain")
-	}
 	flags := flag.NewFlagSet("setup", flag.ExitOnError)
 	username := flags.String("username", "", "NJU username")
-	keychainService := flags.String("keychain-service", "", "macOS Keychain generic-password service name")
 	_ = flags.Parse(args)
-	existing, err := loadCredentialConfig()
-	if err != nil {
+	if err := requireNoPositionals(flags); err != nil {
 		return err
-	}
-	if *username == "" && existing != nil {
-		*username = existing.Username
-	}
-	if *keychainService == "" {
-		if existing != nil && existing.KeychainService != "" {
-			*keychainService = existing.KeychainService
-		} else {
-			*keychainService = defaultKeychainService
-		}
 	}
 	if *username == "" {
 		value, err := promptLine("NJU username: ")
@@ -271,22 +401,16 @@ func setupCommand(args []string) error {
 	}
 	*username = strings.TrimSpace(*username)
 	if *username == "" {
-		return errors.New("empty username")
+		return usagef("empty username")
 	}
-	secret, err := promptSecret("NJU credential: ")
+	secret, err := credentialPrompt("NJU credential: ")
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(secret) == "" {
-		return errors.New("empty password")
+		return usagef("empty password")
 	}
-	if err := storeKeychainPassword(*keychainService, *username, secret); err != nil {
-		return err
-	}
-	if err := saveCredentialConfig(credentialConfig{
-		Username:        *username,
-		KeychainService: *keychainService,
-	}); err != nil {
+	if err := saveCredentialConfig(credentialConfig{Username: *username, Password: secret}); err != nil {
 		return err
 	}
 	path, err := configFilePath()
@@ -295,8 +419,8 @@ func setupCommand(args []string) error {
 	}
 	fmt.Println("state=configured")
 	fmt.Printf("account=%s\n", maskAccount(*username))
-	fmt.Printf("keychain_service=%s\n", *keychainService)
-	fmt.Printf("config_path=%s\n", path)
+	fmt.Println("credential_store=local_file")
+	fmt.Printf("config_path=%s\n", outputField(path, "unknown"))
 	return nil
 }
 
@@ -309,8 +433,16 @@ func logoutCommand() error {
 	if err != nil {
 		return err
 	}
-	printOperationResponse(data)
-	return nil
+	if err := requireOperationSuccess(data); err != nil {
+		return err
+	}
+	response, err := waitForAuthenticationState(func() (*portalResponse, error) {
+		return getPortalResponse(client.http, client.baseURL, fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
+	}, false, postconditionTimeout)
+	if err != nil {
+		return err
+	}
+	return printStatusResponse(response)
 }
 
 func infoCommand() error {
@@ -330,15 +462,11 @@ func infoCommand() error {
 	if err != nil {
 		return err
 	}
-	if response.ReplyCode == 404 {
-		fmt.Println("quick_login_devices=0")
-		return nil
-	}
-	var quick listResults
-	if err := json.Unmarshal(response.Results, &quick); err != nil {
+	quick, err := quickRowsFromResponse(response)
+	if err != nil {
 		return err
 	}
-	return printQuickRows(quick.Rows)
+	return printQuickRows(quick)
 }
 
 func kickCommand(args []string) error {
@@ -346,11 +474,14 @@ func kickCommand(args []string) error {
 	id := flags.String("id", "", "online device id")
 	index := flags.Int("index", 0, "1-based online device index from `njulogin info`")
 	_ = flags.Parse(args)
+	if err := requireNoPositionals(flags); err != nil {
+		return err
+	}
 	if *id != "" && *index != 0 {
-		return errors.New("choose only one of --id or --index")
+		return usagef("choose only one of --id or --index")
 	}
 	if *id == "" && *index == 0 {
-		return errors.New("missing --id or --index")
+		return usagef("missing --id or --index")
 	}
 	if *index != 0 {
 		rows, err := onlineRowsLocal()
@@ -371,13 +502,24 @@ func kickCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	printOperationResponse(data)
+	if err := requireOperationSuccess(data); err != nil {
+		return err
+	}
+	if err := waitForRows(
+		func() ([]map[string]any, error) { return onlineRowsWithClient(client.http, client.baseURL) },
+		func(rows []map[string]any) bool { return rowIDAbsent(rows, *id) },
+		postconditionTimeout,
+		"online-session target remained present before timeout",
+	); err != nil {
+		return err
+	}
+	fmt.Println("result=success")
 	return nil
 }
 
 func quickCommand(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: njulogin quick [list|add|delete]")
+		return usagef("usage: njulogin quick [list|add|delete]")
 	}
 	client, err := newPortalClient(envDefault("NJU_PORTAL_BASE_URL", portalBaseURL))
 	if err != nil {
@@ -385,107 +527,163 @@ func quickCommand(args []string) error {
 	}
 	switch args[0] {
 	case "list":
+		if len(args) != 1 {
+			return usagef("quick list does not accept arguments")
+		}
 		response, err := getJSON(fmt.Sprintf("/api/portal/v1/quicklogin/domain/default?_=%d", time.Now().UnixMilli()))
 		if err != nil {
 			return err
 		}
-		if response.ReplyCode == 404 {
-			fmt.Println("quick_login_devices=0")
-			return nil
-		}
-		var results listResults
-		if err := json.Unmarshal(response.Results, &results); err != nil {
+		rows, err := quickRowsFromResponse(response)
+		if err != nil {
 			return err
 		}
-		return printQuickRows(results.Rows)
+		return printQuickRows(rows)
 	case "add":
 		flags := flag.NewFlagSet("quick add", flag.ExitOnError)
 		name := flags.String("name", "", "quick-login device name")
 		_ = flags.Parse(args[1:])
+		if err := requireNoPositionals(flags); err != nil {
+			return err
+		}
 		if *name == "" {
-			return errors.New("missing --name")
+			return usagef("missing --name")
 		}
 		data, err := client.postJSON("/api/portal/v1/quicklogin/bind/default", map[string]string{"device": *name})
 		if err != nil {
 			return err
 		}
-		printOperationResponse(data)
+		if err := requireOperationSuccess(data); err != nil {
+			return err
+		}
+		if err := waitForRows(
+			func() ([]map[string]any, error) { return quickRowsWithClient(client.http, client.baseURL) },
+			func(rows []map[string]any) bool { return quickNamePresent(rows, *name) },
+			postconditionTimeout,
+			"quick-login binding was not observed before timeout",
+		); err != nil {
+			return err
+		}
+		fmt.Println("result=success")
 		return nil
 	case "delete":
 		flags := flag.NewFlagSet("quick delete", flag.ExitOnError)
 		id := flags.String("id", "", "quick-login device id")
 		_ = flags.Parse(args[1:])
+		if err := requireNoPositionals(flags); err != nil {
+			return err
+		}
 		if *id == "" {
-			return errors.New("missing --id")
+			return usagef("missing --id")
 		}
 		data, err := client.postJSON("/api/portal/v1/quicklogin/unbind/id/"+url.PathEscape(*id), map[string]string{})
 		if err != nil {
 			return err
 		}
-		printOperationResponse(data)
+		if err := requireOperationSuccess(data); err != nil {
+			return err
+		}
+		if err := waitForRows(
+			func() ([]map[string]any, error) { return quickRowsWithClient(client.http, client.baseURL) },
+			func(rows []map[string]any) bool { return rowIDAbsent(rows, *id) },
+			postconditionTimeout,
+			"quick-login binding remained present before timeout",
+		); err != nil {
+			return err
+		}
+		fmt.Println("result=success")
 		return nil
 	default:
-		return fmt.Errorf("unknown quick operation: %s", args[0])
+		return usagef("unknown quick operation: %s", args[0])
 	}
 }
 
 func qrCommand(args []string) error {
-	flags := flag.NewFlagSet("qr", flag.ExitOnError)
-	timeout := flags.Duration("timeout", 60*time.Second, "QR login timeout")
-	_ = flags.Parse(args)
 	client, err := newPortalClient("")
 	if err != nil {
 		return err
 	}
-	loginURL := casBaseURL + "/login?service=" + url.QueryEscape(casDestURL)
+	return qrCommandWithClient(
+		args,
+		client.http,
+		envDefault("NJU_PORTAL_BASE_URL", portalBaseURL),
+		localCASBaseURL,
+		localCASDestURL,
+	)
+}
+
+func qrCommandWithClient(args []string, client *http.Client, portalURL, casURL, destinationURL string) error {
+	flags := flag.NewFlagSet("qr", flag.ExitOnError)
+	timeout := flags.Duration("timeout", 60*time.Second, "QR login timeout")
+	_ = flags.Parse(args)
+	if err := requireNoPositionals(flags); err != nil {
+		return err
+	}
+	if *timeout <= 0 {
+		return usagef("--timeout must be positive")
+	}
+	if err := validatePortalBaseURL(portalURL); err != nil {
+		return err
+	}
+	if err := validatePortalBaseURL(casURL); err != nil {
+		return usagef("invalid CAS base URL: %v", err)
+	}
+	loginURL := strings.TrimRight(casURL, "/") + "/login?service=" + url.QueryEscape(destinationURL)
 	req, err := http.NewRequest(http.MethodGet, loginURL, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("User-Agent", userAgent)
-	htmlData, err := do(req, client.http)
+	htmlData, err := do(req, client)
 	if err != nil {
-		return err
+		return fmt.Errorf("load CAS login page: %w", err)
 	}
 	fields := parseLoginFields(string(htmlData))
-	tokenURL := fmt.Sprintf("%s/qrCode/getToken?ts=%d", casBaseURL, time.Now().UnixMilli())
+	if fields.LT == "" || fields.Execution == "" || fields.EventID == "" {
+		return errors.New("CAS login page is missing required form fields")
+	}
+	tokenURL := fmt.Sprintf("%s/qrCode/getToken?ts=%d", strings.TrimRight(casURL, "/"), time.Now().UnixMilli())
 	req, err = http.NewRequest(http.MethodGet, tokenURL, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("User-Agent", userAgent)
-	tokenData, err := do(req, client.http)
+	tokenData, err := do(req, client)
 	if err != nil {
-		return err
+		return fmt.Errorf("request QR token: %w", err)
 	}
 	token := strings.TrimSpace(string(tokenData))
 	if token == "" {
 		return errors.New("empty QR token")
 	}
-	qrURL := fmt.Sprintf("%s/qrCode/qrCodeLogin.do?uuid=%s", casBaseURL, url.QueryEscape(token))
+	qrURL := fmt.Sprintf("%s/qrCode/qrCodeLogin.do?uuid=%s", strings.TrimRight(casURL, "/"), url.QueryEscape(token))
 	qr, err := qrcode.New(qrURL, qrcode.Medium)
 	if err != nil {
-		return err
+		return errors.New("generate QR code from portal token")
 	}
 	fmt.Print(qr.ToSmallString(false))
 	fmt.Println("scan_state=waiting")
 	deadline := time.Now().Add(*timeout)
+	confirmedReported := false
 	for time.Now().Before(deadline) {
-		statusURL := fmt.Sprintf("%s/qrCode/getStatus.htl?ts=%d&uuid=%s", casBaseURL, time.Now().UnixMilli(), url.QueryEscape(token))
+		statusURL := fmt.Sprintf("%s/qrCode/getStatus.htl?ts=%d&uuid=%s", strings.TrimRight(casURL, "/"), time.Now().UnixMilli(), url.QueryEscape(token))
 		req, err = http.NewRequest(http.MethodGet, statusURL, nil)
 		if err != nil {
 			return err
 		}
 		req.Header.Set("User-Agent", userAgent)
-		statusData, err := do(req, client.http)
+		statusData, err := do(req, client)
 		if err != nil {
-			return err
+			return fmt.Errorf("poll QR status: %w", err)
 		}
 		switch strings.TrimSpace(string(statusData)) {
 		case "1":
-			return finishQRLogin(client.http, loginURL, fields, token)
+			return finishQRLogin(client, portalURL, loginURL, fields, token)
 		case "2":
-			fmt.Println("scan_state=confirmed_on_phone_pending")
+			if !confirmedReported {
+				fmt.Println("scan_state=confirmed_on_phone_pending")
+				confirmedReported = true
+			}
 		case "3":
 			return errors.New("QR code expired")
 		}
@@ -494,7 +692,7 @@ func qrCommand(args []string) error {
 	return errors.New("QR login timed out")
 }
 
-func finishQRLogin(client *http.Client, loginURL string, fields loginFields, token string) error {
+func finishQRLogin(client *http.Client, portalURL, loginURL string, fields loginFields, token string) error {
 	form := url.Values{}
 	form.Set("lt", fields.LT)
 	form.Set("uuid", token)
@@ -510,10 +708,12 @@ func finishQRLogin(client *http.Client, loginURL string, fields loginFields, tok
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", userAgent)
 	if _, err := doWithoutRedirects(req, client); err != nil {
-		return err
+		return fmt.Errorf("submit QR login: %w", err)
 	}
-	fmt.Println("state=qr_login_submitted")
-	response, err := getPortalResponse(client, envDefault("NJU_PORTAL_BASE_URL", portalBaseURL), fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
+	fmt.Println("scan_state=login_submitted")
+	response, err := waitForAuthenticationState(func() (*portalResponse, error) {
+		return getPortalResponse(client, portalURL, fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
+	}, true, postconditionTimeout)
 	if err != nil {
 		return err
 	}
@@ -544,25 +744,23 @@ func inputValue(document string, name string) string {
 	return match[1]
 }
 
-func printOperationResponse(data []byte) {
+func requireOperationSuccess(data []byte) error {
 	response, err := parsePortalResponse(data)
 	if err != nil {
-		fmt.Println("operation_response=unparsed")
-		return
+		return fmt.Errorf("parse portal operation response: %w", err)
 	}
-	fmt.Printf("reply_code=%d\n", response.ReplyCode)
-	if response.ReplyMsg != "" {
-		fmt.Printf("reply_msg=%s\n", response.ReplyMsg)
+	if response.ReplyCode != 0 {
+		return fmt.Errorf("portal operation rejected with reply_code=%d", response.ReplyCode)
 	}
+	return nil
 }
 
 func printStatusResponse(response *portalResponse) error {
-	fmt.Printf("reply_code=%d\n", response.ReplyCode)
-	if response.ReplyMsg != "" {
-		fmt.Printf("reply_msg=%s\n", response.ReplyMsg)
-	}
 	rows, authenticated, err := portalSessionRows(response)
-	if err != nil || !authenticated {
+	if err != nil {
+		return err
+	}
+	if !authenticated {
 		fmt.Println("state=not_authenticated")
 		return nil
 	}
@@ -575,7 +773,7 @@ func printStatusResponse(response *portalResponse) error {
 			maskAccount(row.Username),
 			maskText(row.Fullname),
 			formatUnix(row.AcctStartTime),
-			valueDefault(row.ServiceName, "unknown"),
+			outputField(row.ServiceName, "unknown"),
 			maskMAC(row.MAC),
 		)
 	}
@@ -590,16 +788,115 @@ func portalSessionRows(response *portalResponse) ([]sessionRow, bool, error) {
 	if err := json.Unmarshal(response.Results, &results); err != nil {
 		return nil, false, err
 	}
-	if len(results.Rows) == 0 {
+	if results.Rows == nil {
+		return nil, false, errors.New("portal status response is missing results.rows")
+	}
+	if len(*results.Rows) == 0 {
 		return nil, false, nil
 	}
-	return results.Rows, true, nil
+	return *results.Rows, true, nil
+}
+
+func quickRowsFromResponse(response *portalResponse) ([]map[string]any, error) {
+	if response.ReplyCode == 404 {
+		return []map[string]any{}, nil
+	}
+	if response.ReplyCode != 0 {
+		return nil, fmt.Errorf("portal quick-login query failed with reply_code=%d", response.ReplyCode)
+	}
+	var results listResults
+	if err := json.Unmarshal(response.Results, &results); err != nil {
+		return nil, err
+	}
+	if results.Rows == nil {
+		return nil, errors.New("portal quick-login response is missing results.rows")
+	}
+	return *results.Rows, nil
+}
+
+func onlineRowsFromResponse(response *portalResponse) ([]map[string]any, error) {
+	if response.ReplyCode != 0 {
+		return nil, fmt.Errorf("portal online-session query failed with reply_code=%d", response.ReplyCode)
+	}
+	var results listResults
+	if err := json.Unmarshal(response.Results, &results); err != nil {
+		return nil, err
+	}
+	if results.Rows == nil {
+		return nil, errors.New("portal online-session response is missing results.rows")
+	}
+	return *results.Rows, nil
+}
+
+func waitForAuthenticationState(fetch func() (*portalResponse, error), wantAuthenticated bool, timeout time.Duration) (*portalResponse, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		response, err := fetch()
+		if err != nil {
+			return nil, err
+		}
+		_, authenticated, err := portalSessionRows(response)
+		if err != nil {
+			return response, err
+		}
+		if authenticated == wantAuthenticated {
+			return response, nil
+		}
+		if !time.Now().Before(deadline) {
+			if wantAuthenticated {
+				return response, errors.New("operation accepted but authenticated state was not observed before timeout")
+			}
+			return response, errors.New("operation accepted but unauthenticated state was not observed before timeout")
+		}
+		time.Sleep(postconditionPollInterval)
+	}
+}
+
+func waitForRows(fetch func() ([]map[string]any, error), predicate func([]map[string]any) bool, timeout time.Duration, failure string) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		rows, err := fetch()
+		if err != nil {
+			return err
+		}
+		if predicate(rows) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return errors.New(failure)
+		}
+		time.Sleep(postconditionPollInterval)
+	}
+}
+
+func rowIDAbsent(rows []map[string]any, id string) bool {
+	for _, row := range rows {
+		if strings.TrimSpace(fmt.Sprint(row["id"])) == id {
+			return false
+		}
+	}
+	return true
+}
+
+func quickNamePresent(rows []map[string]any, name string) bool {
+	for _, row := range rows {
+		if strings.TrimSpace(fmt.Sprint(row["device"])) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func printQuickRows(rows []map[string]any) error {
 	fmt.Printf("quick_login_devices=%d\n", len(rows))
-	for _, row := range rows {
-		fmt.Printf("quick device_id=%v mac=%s name=%v\n", row["id"], maskMAC(fmt.Sprint(row["mac"])), row["device"])
+	for index, row := range rows {
+		fmt.Printf(
+			"quick_%d=device_id=%v mac=%s name=%v\n",
+			index+1,
+			outputField(fmt.Sprint(row["id"]), "unknown"),
+			maskMAC(fmt.Sprint(row["mac"])),
+			outputField(fmt.Sprint(row["device"]), "unknown"),
+		)
 	}
 	return nil
 }
@@ -608,7 +905,7 @@ func printOnlineRows(rows []map[string]any) error {
 	fmt.Printf("online_devices=%d\n", len(rows))
 	for index, row := range rows {
 		fmt.Printf(
-			"online index=%d start=%s mac=%s ipv4=redacted ipv6=%s\n",
+			"online_%d=start=%s mac=%s ipv4=redacted ipv6=%s\n",
 			index+1,
 			formatAnyUnix(row["acctstarttime"]),
 			maskMAC(fmt.Sprint(row["mac"])),
@@ -618,12 +915,61 @@ func printOnlineRows(rows []map[string]any) error {
 	return nil
 }
 
-func resolveSecret(command, keychainService, username string, ask, stdin bool) (string, error) {
-	switch {
-	case command != "":
-		output, err := exec.Command("bash", "-lc", command).Output()
+func resolveLoginCredential(username *string, command string, ask, stdin bool) (string, error) {
+	explicitSources := 0
+	if command != "" {
+		explicitSources++
+	}
+	if ask {
+		explicitSources++
+	}
+	if stdin {
+		explicitSources++
+	}
+	if explicitSources > 1 {
+		return "", usagef("credential sources are mutually exclusive: choose one of --password-command, --password-stdin, or --ask")
+	}
+	var config *credentialConfig
+	if *username == "" || explicitSources == 0 {
+		var err error
+		config, err = loadCredentialConfig()
 		if err != nil {
 			return "", err
+		}
+	}
+	if *username == "" && config != nil {
+		*username = config.Username
+	}
+	*username = strings.TrimSpace(*username)
+	if *username == "" {
+		return "", usagef("missing username: run `njulogin setup --username <username>` first or pass --username")
+	}
+	if explicitSources != 0 {
+		return resolveExplicitSecret(command, ask, stdin)
+	}
+	if config == nil {
+		return "", usagef("no saved credential: run `njulogin setup` or choose --password-command, --password-stdin, or --ask")
+	}
+	if config.Username != *username {
+		return "", usagef("saved credential belongs to a different username; run `njulogin setup` or choose an explicit credential source")
+	}
+	if strings.TrimSpace(config.Password) == "" {
+		return "", errors.New("saved credential is empty")
+	}
+	return config.Password, nil
+}
+
+func resolveExplicitSecret(command string, ask, stdin bool) (string, error) {
+	switch {
+	case command != "":
+		ctx, cancel := context.WithTimeout(context.Background(), passwordCommandTimeout)
+		defer cancel()
+		output, err := newCommandContext(ctx, "bash", "-lc", command).Output()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", errors.New("password command timed out")
+		}
+		if err != nil {
+			return "", fmt.Errorf("password command failed: %w", err)
 		}
 		return strings.TrimRight(string(output), "\r\n"), nil
 	case stdin:
@@ -641,34 +987,9 @@ func resolveSecret(command, keychainService, username string, ask, stdin bool) (
 			return "", err
 		}
 		return string(data), nil
-	case keychainService != "":
-		return readKeychainPassword(keychainService, username)
 	default:
-		return "", errors.New("choose one of --password-command, --keychain-service, --password-stdin, or --ask")
+		return "", usagef("choose one of --password-command, --password-stdin, or --ask")
 	}
-}
-
-func applyCredentialDefaults(username, keychainService *string, passwordCommand string, ask, stdin bool) error {
-	config, err := loadCredentialConfig()
-	if err != nil {
-		return err
-	}
-	if config != nil {
-		if *username == "" {
-			*username = config.Username
-		}
-		if *keychainService == "" {
-			*keychainService = config.KeychainService
-		}
-	}
-	if *keychainService == "" && passwordCommand == "" && !ask && !stdin {
-		*keychainService = defaultKeychainService
-	}
-	if strings.TrimSpace(*username) == "" {
-		return errors.New("missing username: run `njulogin setup --username <username>` first or pass --username")
-	}
-	*username = strings.TrimSpace(*username)
-	return nil
 }
 
 func configFilePath() (string, error) {
@@ -687,26 +1008,58 @@ func loadCredentialConfig() (*credentialConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
+	if err := validateConfigPermissions(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
 	var config credentialConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&config); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("parse %s: trailing JSON data", path)
+	}
 	config.Username = strings.TrimSpace(config.Username)
-	config.KeychainService = strings.TrimSpace(config.KeychainService)
 	if config.Username == "" {
 		return nil, fmt.Errorf("invalid config %s: missing username", path)
 	}
-	if config.KeychainService == "" {
-		config.KeychainService = defaultKeychainService
+	if strings.TrimSpace(config.Password) == "" {
+		return nil, fmt.Errorf("invalid config %s: missing password", path)
 	}
 	return &config, nil
+}
+
+func validateConfigPermissions(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("config %s must be a regular file, not a symlink or special file", path)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		return fmt.Errorf("config %s has mode %04o; expected 0600", path, mode)
+	}
+	dir := filepath.Dir(path)
+	dirInfo, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if dirInfo.Mode()&os.ModeSymlink != 0 || !dirInfo.IsDir() {
+		return fmt.Errorf("config parent %s must be a directory, not a symlink or special file", dir)
+	}
+	if mode := dirInfo.Mode().Perm(); mode != 0o700 {
+		return fmt.Errorf("config directory %s has mode %04o; expected 0700", dir, mode)
+	}
+	return nil
 }
 
 func saveCredentialConfig(config credentialConfig) error {
@@ -715,14 +1068,31 @@ func saveCredentialConfig(config credentialConfig) error {
 		return err
 	}
 	config.Username = strings.TrimSpace(config.Username)
-	config.KeychainService = strings.TrimSpace(config.KeychainService)
 	if config.Username == "" {
 		return errors.New("cannot save config with empty username")
 	}
-	if config.KeychainService == "" {
-		config.KeychainService = defaultKeychainService
+	if strings.TrimSpace(config.Password) == "" {
+		return errors.New("cannot save config with empty password")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	dirInfo, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if dirInfo.Mode()&os.ModeSymlink != 0 || !dirInfo.IsDir() {
+		return fmt.Errorf("config parent %s must be a directory, not a symlink or special file", dir)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("config %s must be a regular file, not a symlink or special file", path)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	data, err := json.MarshalIndent(config, "", "  ")
@@ -730,41 +1100,31 @@ func saveCredentialConfig(config credentialConfig) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o600)
-}
-
-func readKeychainPassword(service, username string) (string, error) {
-	if runtime.GOOS != "darwin" {
-		return "", errors.New("--keychain-service requires macOS")
-	}
-	output, err := exec.Command("security", "find-generic-password", "-s", service, "-a", username, "-w").CombinedOutput()
+	temporary, err := os.CreateTemp(dir, ".config.json.tmp-*")
 	if err != nil {
-		return "", fmt.Errorf("security find-generic-password failed: %w: %s", err, strings.TrimSpace(string(output)))
+		return err
 	}
-	return strings.TrimRight(string(output), "\r\n"), nil
-}
-
-func storeKeychainPassword(service, username, password string) error {
-	cmd := keychainStoreCommand(service, username, password)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("security add-generic-password failed: %w: %s", err, strings.TrimSpace(string(output)))
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
 	}
-	return nil
-}
-
-func keychainStoreCommand(service, username, password string) *exec.Cmd {
-	cmd := exec.Command(
-		"security",
-		"add-generic-password",
-		"-U",
-		"-a", username,
-		"-s", service,
-		"-l", service,
-		"-w",
-	)
-	cmd.Stdin = strings.NewReader(password + "\n")
-	return cmd
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 func promptLine(prompt string) (string, error) {
@@ -919,7 +1279,7 @@ func runInteractiveRemote(host, action string) error {
 	settings := defaultRemoteSettings()
 	switch action {
 	case "1":
-		return remoteLoginCommand(host, settings, nil, false)
+		return remoteLoginCommand(host, settings, nil)
 	case "2":
 		return remoteQRCommand(host, settings)
 	case "3":
@@ -940,14 +1300,14 @@ func runInteractiveRemote(host, action string) error {
 		if err != nil {
 			return err
 		}
-		return remoteLoginCommand(host, settings, []string{"--add-quick", name}, false)
+		return remoteLoginCommand(host, settings, []string{"--add-quick", name})
 	default:
 		return fmt.Errorf("unsupported remote action: %s", action)
 	}
 }
 
 func maskText(value string) string {
-	runes := []rune(value)
+	runes := []rune(normalizeField(value))
 	if len(runes) == 0 {
 		return "unknown"
 	}
@@ -961,13 +1321,16 @@ func maskText(value string) string {
 }
 
 func maskAccount(value string) string {
-	if len(value) <= 6 {
+	value = normalizeField(value)
+	runes := []rune(value)
+	if len(runes) <= 6 {
 		return maskText(value)
 	}
-	return value[:3] + "***" + value[len(value)-3:]
+	return string(runes[:3]) + "***" + string(runes[len(runes)-3:])
 }
 
 func maskMAC(value string) string {
+	value = normalizeField(value)
 	parts := strings.Split(value, ":")
 	if len(parts) != 6 {
 		if value == "" {
@@ -985,11 +1348,47 @@ func formatUnix(value int64) string {
 	return time.Unix(value, 0).Format("2006-01-02 15:04:05")
 }
 
-func valueDefault(value, fallback string) string {
-	if value == "" {
+func normalizeField(value string) string {
+	cleaned := strings.Map(func(char rune) rune {
+		if unicode.IsControl(char) || unicode.IsSpace(char) {
+			return ' '
+		}
+		return char
+	}, value)
+	return strings.Join(strings.Fields(cleaned), " ")
+}
+
+func outputField(value, fallback string) string {
+	value = normalizeField(value)
+	if value == "" || value == "<nil>" {
 		return fallback
 	}
 	return value
+}
+
+func effectiveVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return resolveVersion(version, nil)
+	}
+	return resolveVersion(version, info)
+}
+
+func resolveVersion(linked string, info *debug.BuildInfo) string {
+	linked = strings.TrimSpace(linked)
+	if linked != "" && linked != "dev" {
+		return linked
+	}
+	if info != nil {
+		moduleVersion := strings.TrimSpace(info.Main.Version)
+		if moduleVersion != "" && moduleVersion != "(devel)" {
+			return moduleVersion
+		}
+	}
+	if linked == "" {
+		return "dev"
+	}
+	return linked
 }
 
 func envDefault(name, fallback string) string {
@@ -1002,205 +1401,309 @@ func envDefault(name, fallback string) string {
 func defaultRemoteSettings() remoteSettings {
 	return remoteSettings{
 		BaseURL:        envDefault("NJU_PORTAL_BASE_URL", portalBaseURL),
-		Proxy:          os.Getenv("PNJU_CURL_PROXY"),
-		Insecure:       os.Getenv("PNJU_INSECURE") == "1",
+		Insecure:       false,
 		ConnectTimeout: 5,
 		MaxTime:        15,
 	}
 }
 
+func validateRemoteSettings(settings remoteSettings) error {
+	if err := validatePortalBaseURL(settings.BaseURL); err != nil {
+		return err
+	}
+	if settings.ConnectTimeout <= 0 {
+		return usagef("--connect-timeout must be positive")
+	}
+	if settings.ConnectTimeout > maxConnectTimeout {
+		return usagef("--connect-timeout must be at most %d seconds", maxConnectTimeout)
+	}
+	if settings.MaxTime <= 0 {
+		return usagef("--max-time must be positive")
+	}
+	if settings.MaxTime > maxRequestTimeout {
+		return usagef("--max-time must be at most %d seconds", maxRequestTimeout)
+	}
+	return nil
+}
+
+func validateSSHHost(host string) error {
+	if strings.TrimSpace(host) == "" {
+		return usagef("missing SSH host")
+	}
+	if strings.IndexFunc(host, func(value rune) bool {
+		return value <= ' ' || value == 0x7f
+	}) >= 0 {
+		return usagef("SSH host must not contain whitespace or control characters")
+	}
+	if strings.HasPrefix(host, "-") {
+		return usagef("SSH host must not begin with '-'")
+	}
+	return nil
+}
+
 func remoteCommand(args []string) error {
 	flags := flag.NewFlagSet("remote", flag.ExitOnError)
 	settings := defaultRemoteSettings()
-	flags.StringVar(&settings.BaseURL, "base-url", settings.BaseURL, "remote portal base URL")
-	flags.StringVar(&settings.Proxy, "proxy", settings.Proxy, "remote curl proxy URL")
-	flags.BoolVar(&settings.Insecure, "insecure", settings.Insecure, "remote curl -k")
-	flags.IntVar(&settings.ConnectTimeout, "connect-timeout", settings.ConnectTimeout, "remote curl connect timeout")
-	flags.IntVar(&settings.MaxTime, "max-time", settings.MaxTime, "remote curl max time")
+	flags.StringVar(&settings.BaseURL, "base-url", settings.BaseURL, "portal base URL reached through SSH")
+	flags.BoolVar(&settings.Insecure, "insecure", settings.Insecure, "disable local TLS verification for tunneled requests")
+	flags.IntVar(&settings.ConnectTimeout, "connect-timeout", settings.ConnectTimeout, "SSH connect timeout")
+	flags.IntVar(&settings.MaxTime, "max-time", settings.MaxTime, "per-request timeout")
 	_ = flags.Parse(args)
 	rest := flags.Args()
 	if len(rest) < 2 {
-		return errors.New("usage: njulogin remote [flags] <ssh-host> <operation> [args]")
+		return usagef("usage: njulogin remote [flags] <ssh-host> <operation> [args]")
 	}
 	host := rest[0]
+	if err := validateSSHHost(host); err != nil {
+		return err
+	}
+	if err := validateRemoteSettings(settings); err != nil {
+		return err
+	}
+	if settings.Insecure {
+		fmt.Fprintln(os.Stderr, "warning: TLS verification is disabled for locally processed tunneled requests")
+	}
 	op := rest[1]
 	opArgs := rest[2:]
 	switch op {
 	case "status":
+		if err := requireNoArgs("remote status", opArgs); err != nil {
+			return err
+		}
 		return remoteStatusCommand(host, settings)
-	case "probe":
-		return remoteProbeCommand(host, settings)
 	case "login":
-		return remoteLoginCommand(host, settings, opArgs, false)
-	case "keychain-login":
-		return remoteLoginCommand(host, settings, opArgs, true)
+		return remoteLoginCommand(host, settings, opArgs)
 	case "logout":
+		if err := requireNoArgs("remote logout", opArgs); err != nil {
+			return err
+		}
 		return remoteLogoutCommand(host, settings)
 	case "info":
+		if err := requireNoArgs("remote info", opArgs); err != nil {
+			return err
+		}
 		return remoteInfoCommand(host, settings)
 	case "quick":
 		return remoteQuickCommand(host, settings, opArgs)
-	case "add":
-		return remoteQuickCommand(host, settings, append([]string{"add"}, opArgs...))
-	case "delete":
-		return remoteQuickCommand(host, settings, append([]string{"delete"}, opArgs...))
 	case "kick":
 		return remoteKickCommand(host, settings, opArgs)
-	case "qr", "qr-login":
+	case "qr":
+		if err := requireNoArgs("remote qr", opArgs); err != nil {
+			return err
+		}
 		return remoteQRCommand(host, settings)
 	default:
-		return fmt.Errorf("unknown remote operation: %s", op)
+		return usagef("unknown remote operation: %s", op)
 	}
 }
 
-func remoteStatusCommand(host string, settings remoteSettings) error {
-	response, err := remoteGetJSON(host, settings, fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
+func newRemotePortalClient(host string, settings remoteSettings) (*portalClient, error) {
+	httpClient, err := newSSHHTTPClient(host, settings)
+	if err != nil {
+		return nil, err
+	}
+	return &portalClient{baseURL: strings.TrimRight(settings.BaseURL, "/"), http: httpClient}, nil
+}
+
+func remoteStatusWithClient(client *portalClient) error {
+	response, err := getPortalResponse(client.http, client.baseURL, fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
 	if err != nil {
 		return err
 	}
 	return printStatusResponse(response)
 }
 
-func remoteProbeCommand(host string, settings remoteSettings) error {
-	fmt.Println("== status ==")
-	if err := remoteStatusCommand(host, settings); err != nil {
+func remoteStatusCommand(host string, settings remoteSettings) error {
+	client, err := newRemotePortalClient(host, settings)
+	if err != nil {
 		return err
 	}
-	return nil
+	return remoteStatusWithClient(client)
 }
 
-func remoteLoginCommand(host string, settings remoteSettings, args []string, keychainDefault bool) error {
+func remoteLoginCommand(host string, settings remoteSettings, args []string) error {
 	flags := flag.NewFlagSet("remote login", flag.ExitOnError)
 	username := flags.String("username", "", "NJU username")
 	passwordCommand := flags.String("password-command", "", "command that prints the credential to stdout")
-	keychainService := flags.String("keychain-service", "", "macOS Keychain generic-password service name")
 	ask := flags.Bool("ask", false, "read credential interactively without echo")
 	stdin := flags.Bool("password-stdin", false, "read credential from stdin")
 	addQuick := flags.String("add-quick", "", "add current device as a quick-login device after login")
 	_ = flags.Parse(args)
-	if keychainDefault && *keychainService == "" {
-		*keychainService = defaultKeychainService
-	}
-	if err := applyCredentialDefaults(username, keychainService, *passwordCommand, *ask, *stdin); err != nil {
+	if err := requireNoPositionals(flags); err != nil {
 		return err
 	}
-	secret, err := resolveSecret(*passwordCommand, *keychainService, *username, *ask, *stdin)
+	secret, err := resolveLoginCredential(username, *passwordCommand, *ask, *stdin)
 	if err != nil {
 		return err
 	}
-	data, err := remotePostJSON(host, settings, "/api/portal/v1/login", map[string]string{
+	if strings.TrimSpace(secret) == "" {
+		return usagef("empty password")
+	}
+	client, err := newRemotePortalClient(host, settings)
+	if err != nil {
+		return err
+	}
+	data, err := client.postJSON("/api/portal/v1/login", map[string]string{
 		"username": *username,
 		"password": secret,
 	})
 	if err != nil {
 		return err
 	}
-	printOperationResponse(data)
+	if err := requireOperationSuccess(data); err != nil {
+		return err
+	}
+	response, err := waitForAuthenticationState(func() (*portalResponse, error) {
+		return getPortalResponse(client.http, client.baseURL, fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
+	}, true, postconditionTimeout)
+	if err != nil {
+		return err
+	}
 	if *addQuick != "" {
-		data, err = remotePostJSON(host, settings, "/api/portal/v1/quicklogin/bind/default", map[string]string{"device": *addQuick})
+		data, err = client.postJSON("/api/portal/v1/quicklogin/bind/default", map[string]string{"device": *addQuick})
 		if err != nil {
 			return err
 		}
-		printOperationResponse(data)
-	}
-	response, err := waitForRemoteAuthentication(host, settings, 10*time.Second)
-	if err != nil {
-		if response != nil {
-			_ = printStatusResponse(response)
+		if err := requireOperationSuccess(data); err != nil {
+			return err
 		}
+		if err := waitForRows(
+			func() ([]map[string]any, error) { return quickRowsWithClient(client.http, client.baseURL) },
+			func(rows []map[string]any) bool { return quickNamePresent(rows, *addQuick) },
+			postconditionTimeout,
+			"remote quick-login binding was not observed before timeout",
+		); err != nil {
+			return err
+		}
+	}
+	if err := printStatusResponse(response); err != nil {
+		return err
+	}
+	if *addQuick != "" {
+		fmt.Println("quick_add_result=success")
+	}
+	return nil
+}
+
+func remoteLogoutCommand(host string, settings remoteSettings) error {
+	client, err := newRemotePortalClient(host, settings)
+	if err != nil {
+		return err
+	}
+	data, err := client.postJSON("/api/portal/v1/logout", map[string]string{"domain": "default"})
+	if err != nil {
+		return err
+	}
+	if err := requireOperationSuccess(data); err != nil {
+		return err
+	}
+	response, err := waitForAuthenticationState(func() (*portalResponse, error) {
+		return getPortalResponse(client.http, client.baseURL, fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
+	}, false, postconditionTimeout)
+	if err != nil {
 		return err
 	}
 	return printStatusResponse(response)
 }
 
-func remoteLogoutCommand(host string, settings remoteSettings) error {
-	data, err := remotePostJSON(host, settings, "/api/portal/v1/logout", map[string]string{"domain": "default"})
-	if err != nil {
-		return err
-	}
-	printOperationResponse(data)
-	return nil
-}
-
 func remoteInfoCommand(host string, settings remoteSettings) error {
-	if err := remoteStatusCommand(host, settings); err != nil {
-		return err
-	}
-	fmt.Println()
-	response, err := remoteGetJSON(host, settings, fmt.Sprintf("/api/selfservice/v1/online?page=1&limit=10000&_=%d", time.Now().UnixMilli()))
+	client, err := newRemotePortalClient(host, settings)
 	if err != nil {
 		return err
 	}
-	var online listResults
-	if err := json.Unmarshal(response.Results, &online); err != nil {
-		return err
-	}
-	if err := printOnlineRows(online.Rows); err != nil {
+	if err := remoteStatusWithClient(client); err != nil {
 		return err
 	}
 	fmt.Println()
-	response, err = remoteGetJSON(host, settings, fmt.Sprintf("/api/portal/v1/quicklogin/domain/default?_=%d", time.Now().UnixMilli()))
+	rows, err := onlineRowsWithClient(client.http, client.baseURL)
 	if err != nil {
 		return err
 	}
-	if response.ReplyCode == 404 {
-		fmt.Println("quick_login_devices=0")
-		return nil
-	}
-	var quick listResults
-	if err := json.Unmarshal(response.Results, &quick); err != nil {
+	if err := printOnlineRows(rows); err != nil {
 		return err
 	}
-	return printQuickRows(quick.Rows)
+	fmt.Println()
+	quick, err := quickRowsWithClient(client.http, client.baseURL)
+	if err != nil {
+		return err
+	}
+	return printQuickRows(quick)
 }
 
 func remoteQuickCommand(host string, settings remoteSettings, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: njulogin remote <host> quick [list|add|delete]")
+		return usagef("usage: njulogin remote <host> quick [list|add|delete]")
+	}
+	client, err := newRemotePortalClient(host, settings)
+	if err != nil {
+		return err
 	}
 	switch args[0] {
 	case "list":
-		response, err := remoteGetJSON(host, settings, fmt.Sprintf("/api/portal/v1/quicklogin/domain/default?_=%d", time.Now().UnixMilli()))
+		if len(args) != 1 {
+			return usagef("remote quick list does not accept arguments")
+		}
+		rows, err := quickRowsWithClient(client.http, client.baseURL)
 		if err != nil {
 			return err
 		}
-		if response.ReplyCode == 404 {
-			fmt.Println("quick_login_devices=0")
-			return nil
-		}
-		var quick listResults
-		if err := json.Unmarshal(response.Results, &quick); err != nil {
-			return err
-		}
-		return printQuickRows(quick.Rows)
+		return printQuickRows(rows)
 	case "add":
 		flags := flag.NewFlagSet("remote quick add", flag.ExitOnError)
 		name := flags.String("name", "", "quick-login device name")
 		_ = flags.Parse(args[1:])
-		if *name == "" {
-			return errors.New("missing --name")
+		if err := requireNoPositionals(flags); err != nil {
+			return err
 		}
-		data, err := remotePostJSON(host, settings, "/api/portal/v1/quicklogin/bind/default", map[string]string{"device": *name})
+		if *name == "" {
+			return usagef("missing --name")
+		}
+		data, err := client.postJSON("/api/portal/v1/quicklogin/bind/default", map[string]string{"device": *name})
 		if err != nil {
 			return err
 		}
-		printOperationResponse(data)
+		if err := requireOperationSuccess(data); err != nil {
+			return err
+		}
+		if err := waitForRows(
+			func() ([]map[string]any, error) { return quickRowsWithClient(client.http, client.baseURL) },
+			func(rows []map[string]any) bool { return quickNamePresent(rows, *name) },
+			postconditionTimeout,
+			"remote quick-login binding was not observed before timeout",
+		); err != nil {
+			return err
+		}
+		fmt.Println("result=success")
 		return nil
 	case "delete":
 		flags := flag.NewFlagSet("remote quick delete", flag.ExitOnError)
 		id := flags.String("id", "", "quick-login device id")
 		_ = flags.Parse(args[1:])
-		if *id == "" {
-			return errors.New("missing --id")
+		if err := requireNoPositionals(flags); err != nil {
+			return err
 		}
-		data, err := remotePostJSON(host, settings, "/api/portal/v1/quicklogin/unbind/id/"+url.PathEscape(*id), map[string]string{})
+		if *id == "" {
+			return usagef("missing --id")
+		}
+		data, err := client.postJSON("/api/portal/v1/quicklogin/unbind/id/"+url.PathEscape(*id), map[string]string{})
 		if err != nil {
 			return err
 		}
-		printOperationResponse(data)
+		if err := requireOperationSuccess(data); err != nil {
+			return err
+		}
+		if err := waitForRows(
+			func() ([]map[string]any, error) { return quickRowsWithClient(client.http, client.baseURL) },
+			func(rows []map[string]any) bool { return rowIDAbsent(rows, *id) },
+			postconditionTimeout,
+			"remote quick-login binding remained present before timeout",
+		); err != nil {
+			return err
+		}
+		fmt.Println("result=success")
 		return nil
 	default:
-		return fmt.Errorf("unknown remote quick operation: %s", args[0])
+		return usagef("unknown remote quick operation: %s", args[0])
 	}
 }
 
@@ -1209,14 +1712,21 @@ func remoteKickCommand(host string, settings remoteSettings, args []string) erro
 	id := flags.String("id", "", "online device id")
 	index := flags.Int("index", 0, "1-based online device index from `njulogin remote <host> info`")
 	_ = flags.Parse(args)
+	if err := requireNoPositionals(flags); err != nil {
+		return err
+	}
 	if *id != "" && *index != 0 {
-		return errors.New("choose only one of --id or --index")
+		return usagef("choose only one of --id or --index")
 	}
 	if *id == "" && *index == 0 {
-		return errors.New("missing --id or --index")
+		return usagef("missing --id or --index")
+	}
+	client, err := newRemotePortalClient(host, settings)
+	if err != nil {
+		return err
 	}
 	if *index != 0 {
-		rows, err := remoteOnlineRows(host, settings)
+		rows, err := onlineRowsWithClient(client.http, client.baseURL)
 		if err != nil {
 			return err
 		}
@@ -1226,108 +1736,31 @@ func remoteKickCommand(host string, settings remoteSettings, args []string) erro
 		}
 		*id = resolved
 	}
-	data, err := remotePostJSON(host, settings, "/api/selfservice/v1/online/kick/"+url.PathEscape(*id), map[string]string{})
+	data, err := client.postJSON("/api/selfservice/v1/online/kick/"+url.PathEscape(*id), map[string]string{})
 	if err != nil {
 		return err
 	}
-	printOperationResponse(data)
+	if err := requireOperationSuccess(data); err != nil {
+		return err
+	}
+	if err := waitForRows(
+		func() ([]map[string]any, error) { return onlineRowsWithClient(client.http, client.baseURL) },
+		func(rows []map[string]any) bool { return rowIDAbsent(rows, *id) },
+		postconditionTimeout,
+		"remote online-session target remained present before timeout",
+	); err != nil {
+		return err
+	}
+	fmt.Println("result=success")
 	return nil
 }
 
 func remoteQRCommand(host string, settings remoteSettings) error {
-	remoteCmd := shellJoin([]string{
-		"env",
-		"NJU_PORTAL_BASE_URL=" + settings.BaseURL,
-		"NJU_CAS_BASE_URL=" + casBaseURL,
-		"NJU_CAS_DEST_URL=" + casDestURL,
-		"NJU_QR_TIMEOUT=" + strconv.Itoa(settings.MaxTime),
-		"NJU_QR_LOGIN_TIMEOUT=60",
-		"NJU_USER_AGENT=" + userAgent,
-		"NJU_INSECURE=" + boolString(settings.Insecure),
-		"sh",
-		"-c",
-		"if command -v python3 >/dev/null 2>&1; then exec python3 -; elif command -v python >/dev/null 2>&1; then exec python -; else echo 'missing remote python runtime' >&2; exit 127; fi",
-	})
-	cmd := exec.Command("ssh", "-T", host, remoteCmd)
-	stdin, err := cmd.StdinPipe()
+	client, err := newSSHHTTPClient(host, settings)
 	if err != nil {
 		return err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go func() {
-		_, _ = io.Copy(os.Stderr, stderr)
-	}()
-	go func() {
-		_, _ = io.WriteString(stdin, remoteQRBootstrap)
-		_ = stdin.Close()
-	}()
-	reader := bufio.NewReader(stdout)
-	header, err := reader.ReadString('\n')
-	if err != nil {
-		_ = cmd.Wait()
-		return fmt.Errorf("remote QR bootstrap did not return a QR URL: %w", err)
-	}
-	header = strings.TrimSpace(header)
-	if !strings.HasPrefix(header, "QR_URL=") {
-		_ = cmd.Wait()
-		return fmt.Errorf("unexpected remote QR header: %s", header)
-	}
-	qrURL := strings.TrimPrefix(header, "QR_URL=")
-	qr, err := qrcode.New(qrURL, qrcode.Medium)
-	if err != nil {
-		_ = cmd.Wait()
-		return err
-	}
-	fmt.Print(qr.ToSmallString(false))
-	if _, err := io.Copy(os.Stdout, reader); err != nil {
-		_ = cmd.Wait()
-		return err
-	}
-	return cmd.Wait()
-}
-
-func waitForRemoteAuthentication(host string, settings remoteSettings, timeout time.Duration) (*portalResponse, error) {
-	deadline := time.Now().Add(timeout)
-	var last *portalResponse
-	for {
-		response, err := remoteGetJSON(host, settings, fmt.Sprintf("/api/portal/v1/getinfo?_=%d", time.Now().UnixMilli()))
-		if err == nil {
-			last = response
-			_, authenticated, parseErr := portalSessionRows(response)
-			if parseErr == nil && authenticated {
-				return response, nil
-			}
-		}
-		if time.Now().After(deadline) {
-			if last != nil {
-				return last, errors.New("remote login accepted but authentication did not become active before timeout")
-			}
-			return nil, errors.New("remote login accepted but status polling failed before timeout")
-		}
-		time.Sleep(time.Second)
-	}
-}
-
-func remoteOnlineRows(host string, settings remoteSettings) ([]map[string]any, error) {
-	response, err := remoteGetJSON(host, settings, fmt.Sprintf("/api/selfservice/v1/online?page=1&limit=10000&_=%d", time.Now().UnixMilli()))
-	if err != nil {
-		return nil, err
-	}
-	var online listResults
-	if err := json.Unmarshal(response.Results, &online); err != nil {
-		return nil, err
-	}
-	return online.Rows, nil
+	return qrCommandWithClient(nil, client, settings.BaseURL, localCASBaseURL, localCASDestURL)
 }
 
 func onlineRowsLocal() ([]map[string]any, error) {
@@ -1335,116 +1768,29 @@ func onlineRowsLocal() ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var online listResults
-	if err := json.Unmarshal(response.Results, &online); err != nil {
-		return nil, err
-	}
-	return online.Rows, nil
+	return onlineRowsFromResponse(response)
 }
 
 func onlineIDAtIndex(rows []map[string]any, index int) (string, error) {
 	if index <= 0 {
-		return "", errors.New("--index must be >= 1")
+		return "", usagef("--index must be >= 1")
 	}
 	if index > len(rows) {
-		return "", fmt.Errorf("--index %d out of range; online_devices=%d", index, len(rows))
+		return "", usagef("--index %d out of range; online_devices=%d", index, len(rows))
 	}
 	id := strings.TrimSpace(fmt.Sprint(rows[index-1]["id"]))
 	if id == "" || id == "<nil>" {
-		return "", fmt.Errorf("online device %d has no usable id", index)
+		return "", usagef("online device %d has no usable id", index)
 	}
 	return id, nil
 }
 
-func remoteGetJSON(host string, settings remoteSettings, path string) (*portalResponse, error) {
-	data, err := sshCapture(host, buildRemoteCurlCommand(settings, http.MethodGet, path, false), nil)
-	if err != nil {
-		return nil, err
-	}
-	return parsePortalResponse(data)
-}
-
-func remotePostJSON(host string, settings remoteSettings, path string, body any) ([]byte, error) {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	return sshCapture(host, buildRemoteCurlCommand(settings, http.MethodPost, path, true), data)
-}
-
-func buildRemoteCurlCommand(settings remoteSettings, method, path string, dataFromStdin bool) string {
-	args := []string{
-		"curl",
-		"-sS",
-		"--connect-timeout", strconv.Itoa(settings.ConnectTimeout),
-		"--max-time", strconv.Itoa(settings.MaxTime),
-	}
-	if settings.Insecure {
-		args = append(args, "-k")
-	}
-	if settings.Proxy != "" {
-		args = append(args, "-x", settings.Proxy)
-	} else {
-		args = append(args, "--noproxy", "*")
-	}
-	if method != http.MethodGet {
-		args = append(args, "-X", method)
-	}
-	if dataFromStdin {
-		args = append(args, "-H", "Content-Type: application/json", "--data", "@-")
-	}
-	args = append(args, strings.TrimRight(settings.BaseURL, "/")+path)
-	return shellJoin(args)
-}
-
-func sshCapture(host, remoteCmd string, stdin []byte) ([]byte, error) {
-	cmd := exec.Command("ssh", host, remoteCmd)
-	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
-	}
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("ssh %s failed: %w: %s", host, err, strings.TrimSpace(string(output)))
-	}
-	return output, nil
-}
-
-func sshStream(host, remoteCmd string) error {
-	cmd := exec.Command("ssh", "-tt", host, remoteCmd)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func shellJoin(args []string) string {
-	quoted := make([]string, 0, len(args))
-	for _, arg := range args {
-		quoted = append(quoted, shellQuote(arg))
-	}
-	return strings.Join(quoted, " ")
-}
-
-func shellQuote(value string) string {
-	if value == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-func boolString(value bool) string {
-	if value {
-		return "1"
-	}
-	return "0"
-}
-
 func usage() {
 	fmt.Fprintln(os.Stderr, `Usage:
-  njulogin setup [--username USER] [--keychain-service SERVICE]
+  njulogin setup [--username USER]
   njulogin status
   njulogin info
-  njulogin login [--username USER] [--keychain-service SERVICE|--password-command CMD|--password-stdin|--ask] [--add-quick NAME]
+  njulogin login [--username USER] [--password-command CMD|--password-stdin|--ask] [--add-quick NAME]
   njulogin qr
   njulogin logout
   njulogin kick --id ID|--index N
@@ -1455,48 +1801,65 @@ func usage() {
   njulogin version`)
 }
 
-func main() {
-	if len(os.Args) < 2 {
+func run(args []string) error {
+	if len(args) == 0 {
 		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 			usage()
-			os.Exit(2)
+			return usagef("interactive mode requires a terminal")
 		}
-		if err := interactiveCommand(); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
-		return
+		return interactiveCommand()
 	}
-	var err error
-	switch os.Args[1] {
+	command := args[0]
+	rest := args[1:]
+	switch command {
 	case "setup":
-		err = setupCommand(os.Args[2:])
+		return setupCommand(rest)
 	case "status":
-		err = statusCommand()
+		if err := requireNoArgs("status", rest); err != nil {
+			return err
+		}
+		return statusCommand()
 	case "info":
-		err = infoCommand()
+		if err := requireNoArgs("info", rest); err != nil {
+			return err
+		}
+		return infoCommand()
 	case "login":
-		err = loginCommand(os.Args[2:])
+		return loginCommand(rest)
 	case "qr":
-		err = qrCommand(os.Args[2:])
+		return qrCommand(rest)
 	case "logout":
-		err = logoutCommand()
+		if err := requireNoArgs("logout", rest); err != nil {
+			return err
+		}
+		return logoutCommand()
 	case "kick":
-		err = kickCommand(os.Args[2:])
+		return kickCommand(rest)
 	case "quick":
-		err = quickCommand(os.Args[2:])
+		return quickCommand(rest)
 	case "remote":
-		err = remoteCommand(os.Args[2:])
+		return remoteCommand(rest)
 	case "version", "--version":
-		fmt.Printf("njulogin %s\n", version)
+		if err := requireNoArgs("version", rest); err != nil {
+			return err
+		}
+		fmt.Printf("njulogin %s\n", effectiveVersion())
+		return nil
 	case "-h", "--help", "help":
+		if err := requireNoArgs("help", rest); err != nil {
+			return err
+		}
 		usage()
+		return nil
 	default:
-		err = fmt.Errorf("unknown command: %s", os.Args[1])
+		return usagef("unknown command: %s", command)
 	}
-	if err != nil {
+}
+
+func main() {
+	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		os.Exit(exitCodeForError(err))
 	}
 }
 

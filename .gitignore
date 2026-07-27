@@ -15,3 +15,5 @@ auth.json
 __pycache__/
 *.pyc
 /packaging/Formula/njulogin.rb
+/*.exe
+/*.test

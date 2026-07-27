@@ -1,0 +1,34 @@
+# frozen_string_literal: true
+
+class Njulogin < Formula
+  desc "Authenticate local or remote network paths with the NJU portal"
+  homepage "https://github.com/soundadam/homebrew-tap"
+  url "https://api.github.com/repos/soundadam/njulogin/releases/assets/@ASSET_ID@",
+      headers: [
+        "Accept: application/octet-stream",
+        "Authorization: Bearer #{ENV.fetch("HOMEBREW_GITHUB_API_TOKEN")}",
+        "X-GitHub-Api-Version: 2022-11-28",
+      ]
+  version "@VERSION@"
+  sha256 "@SHA256@"
+  license "MIT"
+
+  depends_on "go" => :build
+  depends_on macos: :ventura
+
+  def install
+    ldflags = "-s -w -X main.version=#{version}"
+    system "go", "build", "-trimpath", "-ldflags", ldflags,
+           "-o", bin/"njulogin", "./cmd/njulogin"
+    doc.install "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "third_party_licenses"
+  end
+
+  test do
+    assert_match "njulogin #{version}", shell_output("#{bin}/njulogin version")
+    assert_match "Usage:", shell_output("#{bin}/njulogin help 2>&1")
+    assert_path_exists doc/"THIRD_PARTY_NOTICES.md"
+    assert_path_exists doc/"third_party_licenses/github.com_skip2_go-qrcode_LICENSE"
+    assert_path_exists doc/"third_party_licenses/golang.org_x_term_LICENSE"
+    assert_path_exists doc/"third_party_licenses/golang.org_x_sys_LICENSE"
+  end
+end

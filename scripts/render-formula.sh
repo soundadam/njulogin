@@ -36,3 +36,5 @@ sed \
   -e "s|@URL@|$escaped_url|g" \
   -e "s|@SHA256@|$sha256|g" \
   "$template" >"$output"
+
+chmod 0644 "$output"

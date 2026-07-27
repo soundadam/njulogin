@@ -50,7 +50,7 @@ Environment:
   PNJU_BASE_URL=https://p.nju.edu.cn
   PNJU_CURL_PROXY=http://127.0.0.1:7700   # optional; direct by default
   PNJU_INSECURE=1                         # optional curl -k
-  NJU_USERNAME=... NJU_PASSWORD=...       # login only
+  login reads username and credential as two lines from standard input
 EOF
 }
 
@@ -69,23 +69,24 @@ request_get() {
 request_post_json() {
   local path="$1"
   local body="$2"
-  "${curl_args[@]}" \
+  printf '%s' "$body" | "${curl_args[@]}" \
     -H 'Content-Type: application/json' \
     -X POST \
-    --data "$body" \
+    --data '@-' \
     "$base_url$path"
 }
 
 login_body() {
-  python3 - <<'PY'
+  python3 -c '
 import json
-import os
+import sys
 
-print(json.dumps({
-    "username": os.environ["NJU_USERNAME"],
-    "password": os.environ["NJU_PASSWORD"],
-}, ensure_ascii=False))
-PY
+username = sys.stdin.readline().rstrip("\n")
+password = sys.stdin.readline().rstrip("\n")
+if not username or not password:
+    raise SystemExit("login requires nonempty username and credential on stdin")
+print(json.dumps({"username": username, "password": password}, ensure_ascii=False))
+'
 }
 
 device_body() {
@@ -110,8 +111,16 @@ import sys
 kind = sys.argv[1]
 raw = os.environ.get("PNJU_JSON", "")
 
-def mask_text(value):
+def normalize_field(value):
     value = "" if value is None else str(value)
+    return " ".join(value.split())
+
+def output_field(value, fallback="unknown"):
+    value = normalize_field(value)
+    return value if value and value != "<nil>" else fallback
+
+def mask_text(value):
+    value = normalize_field(value)
     if not value:
         return "unknown"
     if len(value) <= 2:
@@ -119,13 +128,13 @@ def mask_text(value):
     return value[0] + ("*" * max(1, len(value) - 2)) + value[-1]
 
 def mask_account(value):
-    value = "" if value is None else str(value)
+    value = normalize_field(value)
     if len(value) <= 6:
         return mask_text(value)
     return value[:3] + "***" + value[-3:]
 
 def mask_mac(value):
-    value = "" if value is None else str(value)
+    value = normalize_field(value)
     parts = value.split(":")
     if len(parts) == 6:
         return ":".join(parts[:2] + ["xx", "xx", "xx"] + parts[-1:])
@@ -144,22 +153,42 @@ except Exception as exc:
     print("raw_available=true")
     sys.exit(1)
 
+if not isinstance(data, dict):
+    print("parse_error=top_level_not_object")
+    sys.exit(1)
+
 reply_code = data.get("reply_code")
-reply_msg = data.get("reply_msg")
-if reply_code is not None:
-    print(f"reply_code={reply_code}")
-if reply_msg:
-    print(f"reply_msg={reply_msg}")
+if type(reply_code) is not int:
+    print("parse_error=missing_or_invalid_reply_code")
+    sys.exit(1)
+print(f"reply_code={reply_code}")
+
+mutation_kinds = {"login", "logout", "add", "delete", "kick"}
+if kind in mutation_kinds:
+    if reply_code != 0:
+        sys.exit(1)
+    print("result=success")
+    sys.exit(0)
+
+if kind == "getinfo" and reply_code != 0:
+    print("state=not_authenticated")
+    sys.exit(0)
+
+if kind == "quick" and reply_code == 404:
+    print("quick_login_devices=0")
+    sys.exit(0)
 
 results = data.get("results")
 if not isinstance(results, dict):
-    if kind in {"login", "logout", "add", "delete", "kick"}:
-        print("operation_response=received")
-    sys.exit(0)
+    print("parse_error=missing_results_object")
+    sys.exit(1)
 
 rows = results.get("rows")
 if kind == "getinfo":
-    if reply_code == 0 and isinstance(rows, list) and rows:
+    if not isinstance(rows, list):
+        print("parse_error=missing_rows_array")
+        sys.exit(1)
+    if rows:
         print("state=authenticated")
         print(f"sessions={len(rows)}")
         for index, row in enumerate(rows, start=1):
@@ -170,24 +199,28 @@ if kind == "getinfo":
                     mask_account(row.get("username")),
                     mask_text(row.get("fullname")),
                     fmt_time(row.get("acctstarttime")),
-                    row.get("service_name") or "unknown",
+                    output_field(row.get("service_name")),
                     mask_mac(row.get("mac")),
                 )
             )
     else:
         print("state=not_authenticated")
-        if isinstance(rows, list):
-            print(f"sessions={len(rows)}")
+        print("sessions=0")
     sys.exit(0)
 
 if kind == "online":
-    online_rows = rows if isinstance(rows, list) else []
+    if reply_code != 0:
+        sys.exit(1)
+    if not isinstance(rows, list):
+        print("parse_error=missing_rows_array")
+        sys.exit(1)
+    online_rows = rows
     print(f"online_devices={len(online_rows)}")
-    for row in online_rows:
+    for index, row in enumerate(online_rows, start=1):
         print(
-            "online id=%s start=%s mac=%s ipv4=redacted ipv6=%s"
+            "online_%d=start=%s mac=%s ipv4=redacted ipv6=%s"
             % (
-                row.get("id", "unknown"),
+                index,
                 fmt_time(row.get("acctstarttime")),
                 mask_mac(row.get("mac")),
                 "present" if row.get("user_ipv6") else "none",
@@ -196,18 +229,21 @@ if kind == "online":
     sys.exit(0)
 
 if kind == "quick":
-    quick_rows = rows if isinstance(rows, list) else []
-    if reply_code == 404:
-        print("quick_login_devices=0")
-        sys.exit(0)
+    if reply_code != 0:
+        sys.exit(1)
+    if not isinstance(rows, list):
+        print("parse_error=missing_rows_array")
+        sys.exit(1)
+    quick_rows = rows
     print(f"quick_login_devices={len(quick_rows)}")
-    for row in quick_rows:
+    for index, row in enumerate(quick_rows, start=1):
         print(
-            "quick device_id=%s mac=%s name=%s"
+            "quick_%d=device_id=%s mac=%s name=%s"
             % (
-                row.get("id", "unknown"),
+                index,
+                output_field(row.get("id")),
                 mask_mac(row.get("mac")),
-                row.get("device") or "unknown",
+                output_field(row.get("device")),
             )
         )
 PY
@@ -248,8 +284,6 @@ case "$mode" in
     status || true
     ;;
   login)
-    : "${NJU_USERNAME:?set NJU_USERNAME for login}"
-    : "${NJU_PASSWORD:?set NJU_PASSWORD for login}"
     raw="$(request_post_json "/api/portal/v1/login" "$(login_body)")"
     summarize_json login "$raw"
     printf '\n== status ==\n'

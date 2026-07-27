@@ -1,22 +1,20 @@
 # Compatibility tools
 
-The installed product is the `njulogin` Go binary. This directory preserves
-the former shell entrypoints for migration and diagnostics:
+These source-tree scripts are migration and diagnostic aids. Homebrew does not
+install them, and they are not a second public interface.
 
-- `njulogin-remote.sh` forwards to an installed `njulogin remote` command, or
-  to `go run ./cmd/njulogin remote` from a source checkout.
-- `njulogin-portal.sh` is a dependency-light portal helper for remote hosts
-  with Bash, curl, and Python.
+- `njulogin-portal.sh` is a local compatibility helper for direct portal
+  diagnostics. It may use local Bash, curl, and Python and must remain
+  service-isolated in automated tests.
+- `njulogin-remote.sh` is only a thin wrapper around the local command:
 
-Homebrew does not install these scripts. New functionality belongs in the Go
-CLI so the repository has one canonical product interface.
+  ```text
+  njulogin remote [flags] <ssh-host> <operation> [args]
+  ```
 
-Examples from a source checkout:
+  It does not copy a helper, execute curl or Python remotely, read an OS
+  keyring, or install `njulogin` on the remote host.
 
-```sh
-tools/NJUlogin/njulogin-remote.sh my-host status
-tools/NJUlogin/njulogin-remote.sh my-host qr
-```
-
-Real portal and SSH operations are explicit operator acceptance steps. Do not
-run them from tests or CI.
+The compiled Go CLI owns credential storage, SSH tunneling, HTTP, TLS, CAS QR,
+redaction, and success semantics. Compatibility scripts must not diverge from
+that contract or acquire new product behavior.
