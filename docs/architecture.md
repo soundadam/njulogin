@@ -8,8 +8,8 @@ governed by [`SPEC.md`](../SPEC.md) and
 
 - `cmd/njulogin` is the entry point; it links the version and calls
   `internal/cli`.
-- `internal/cli` owns argument parsing, the interactive menu, credential-source
-  selection, and output records. Every command runs once against a `Target`:
+- `internal/cli` owns cobra command parsing, credential-source selection, and
+  output records. Every command runs once against a `Target`:
   `Local` reaches the portal directly, `SSH` through a tunnel. Local and remote
   operations differ only in the target they receive.
 - `internal/portal` speaks the portal JSON API behind the `portal.API`
@@ -26,6 +26,11 @@ governed by [`SPEC.md`](../SPEC.md) and
 - `internal/proc` provides bounded subprocess cancellation, including
   process-group termination on Unix-like systems.
 - `internal/redact` normalizes and masks untrusted portal fields.
+- `internal/tui` is the bubbletea interface opened by bare `njulogin`. It
+  reaches operations only through the `tui.Backend` interface, which
+  `internal/cli` implements with the same App operations the commands run.
+  Text inputs can paste from the system clipboard, which runs the local
+  platform paste tool (`pbpaste`, `xclip`, `xsel`, or `wl-paste`).
 - `tools/NJUlogin/` contains source-level compatibility and diagnostic wrappers.
   Homebrew does not install them.
 

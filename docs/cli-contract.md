@@ -23,6 +23,14 @@ rules as executable requirements.
   standard error and exits with status 2.
 - Interactive mode is only a presentation layer over documented commands. It
   MUST NOT expose additional operations or weaker validation.
+- The interactive interface is a full-screen terminal UI. It renders on
+  standard error when that is a terminal and otherwise on standard output. It
+  asks for the target (this machine or an SSH host, validated like `remote`),
+  shows the redacted `info` view, and runs `login`, `qr`, `logout`, `kick`,
+  `quick add`, `quick delete`, and `setup` through the same code as the
+  commands. `kick` and `quick delete` require choosing a displayed row and
+  confirming; `logout` requires confirmation. Typed passwords are masked and
+  are passed to `login` or `setup` as an explicit credential source.
 
 ## Normative invocation surface
 
@@ -32,7 +40,7 @@ and environment variables are not public compatibility surfaces.
 
 | Invocation | Supported inputs |
 | --- | --- |
-| `njulogin` | No arguments; terminal-only interactive presentation. |
+| `njulogin` | No arguments; terminal-only interactive interface. |
 | `njulogin setup` | Optional `--username USER`; prompts for the credential without echo and writes the local credential file. |
 | `njulogin status` | No arguments. |
 | `njulogin info` | No arguments. |

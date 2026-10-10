@@ -16,7 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LICENSE_DIR = ROOT / "third_party_licenses"
-PLATFORMS = [("darwin", "arm64"), ("darwin", "amd64"), ("linux", "amd64"), ("linux", "arm64"), ("windows", "amd64")]
+# Distributed platforms only; the Windows cross-build is a compile check and
+# ships nothing.
+PLATFORMS = [("darwin", "arm64"), ("darwin", "amd64"), ("linux", "amd64"), ("linux", "arm64")]
 LICENSE_NAMES = ["LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING"]
 
 

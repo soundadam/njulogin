@@ -71,8 +71,10 @@ njulogin completion bash|zsh|fish|powershell
 njulogin help [command]
 ```
 
-Running `njulogin` in a terminal opens an interactive menu. Noninteractive use
-requires an explicit subcommand.
+Running `njulogin` in a terminal opens a full-screen interface: choose this
+machine or an SSH host, see the redacted status and device lists, and run login,
+QR login, logout, kick, quick-login, and credential setup from one screen.
+Noninteractive use requires an explicit subcommand.
 
 Examples:
 

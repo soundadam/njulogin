@@ -20,13 +20,35 @@ The compiled `njulogin` executable uses:
   License, used by cobra for flag parsing. The exact license text is retained
   at
   [`third_party_licenses/github.com_spf13_pflag_LICENSE`](third_party_licenses/github.com_spf13_pflag_LICENSE).
-- [`github.com/inconshreveable/mousetrap`](https://github.com/inconshreveable/mousetrap),
-  Apache License 2.0, linked by cobra into Windows builds only. The exact
-  license text is retained at
-  [`third_party_licenses/github.com_inconshreveable_mousetrap_LICENSE`](third_party_licenses/github.com_inconshreveable_mousetrap_LICENSE).
+
+The interactive interface links these modules. Each license text is retained
+under `third_party_licenses/`:
+
+| Module | License | Purpose | Retained text |
+| --- | --- | --- | --- |
+| [`github.com/charmbracelet/bubbletea`](https://github.com/charmbracelet/bubbletea) | MIT | interactive terminal interface | [`github.com_charmbracelet_bubbletea_LICENSE`](third_party_licenses/github.com_charmbracelet_bubbletea_LICENSE) |
+| [`github.com/charmbracelet/bubbles`](https://github.com/charmbracelet/bubbles) | MIT | text inputs and spinner | [`github.com_charmbracelet_bubbles_LICENSE`](third_party_licenses/github.com_charmbracelet_bubbles_LICENSE) |
+| [`github.com/charmbracelet/lipgloss`](https://github.com/charmbracelet/lipgloss) | MIT | terminal styling | [`github.com_charmbracelet_lipgloss_LICENSE`](third_party_licenses/github.com_charmbracelet_lipgloss_LICENSE) |
+| [`github.com/charmbracelet/colorprofile`](https://github.com/charmbracelet/colorprofile) | MIT | terminal color detection | [`github.com_charmbracelet_colorprofile_LICENSE`](third_party_licenses/github.com_charmbracelet_colorprofile_LICENSE) |
+| [`github.com/charmbracelet/x/ansi`](https://github.com/charmbracelet/x/ansi) | MIT | ANSI sequence handling | [`github.com_charmbracelet_x_ansi_LICENSE`](third_party_licenses/github.com_charmbracelet_x_ansi_LICENSE) |
+| [`github.com/charmbracelet/x/cellbuf`](https://github.com/charmbracelet/x/cellbuf) | MIT | screen cell buffer | [`github.com_charmbracelet_x_cellbuf_LICENSE`](third_party_licenses/github.com_charmbracelet_x_cellbuf_LICENSE) |
+| [`github.com/charmbracelet/x/term`](https://github.com/charmbracelet/x/term) | MIT | terminal state | [`github.com_charmbracelet_x_term_LICENSE`](third_party_licenses/github.com_charmbracelet_x_term_LICENSE) |
+| [`github.com/aymanbagabas/go-osc52/v2`](https://github.com/aymanbagabas/go-osc52) | MIT | OSC 52 clipboard sequences | [`github.com_aymanbagabas_go-osc52_v2_LICENSE`](third_party_licenses/github.com_aymanbagabas_go-osc52_v2_LICENSE) |
+| [`github.com/atotto/clipboard`](https://github.com/atotto/clipboard) | BSD-3-Clause | paste into text inputs | [`github.com_atotto_clipboard_LICENSE`](third_party_licenses/github.com_atotto_clipboard_LICENSE) |
+| [`github.com/clipperhouse/displaywidth`](https://github.com/clipperhouse/displaywidth) | MIT | display width | [`github.com_clipperhouse_displaywidth_LICENSE`](third_party_licenses/github.com_clipperhouse_displaywidth_LICENSE) |
+| [`github.com/clipperhouse/stringish`](https://github.com/clipperhouse/stringish) | MIT | string helpers for uax29 | [`github.com_clipperhouse_stringish_LICENSE`](third_party_licenses/github.com_clipperhouse_stringish_LICENSE) |
+| [`github.com/clipperhouse/uax29/v2`](https://github.com/clipperhouse/uax29) | MIT | grapheme segmentation | [`github.com_clipperhouse_uax29_v2_LICENSE`](third_party_licenses/github.com_clipperhouse_uax29_v2_LICENSE) |
+| [`github.com/lucasb-eyer/go-colorful`](https://github.com/lucasb-eyer/go-colorful) | MIT | color conversion | [`github.com_lucasb-eyer_go-colorful_LICENSE`](third_party_licenses/github.com_lucasb-eyer_go-colorful_LICENSE) |
+| [`github.com/mattn/go-isatty`](https://github.com/mattn/go-isatty) | MIT | terminal detection | [`github.com_mattn_go-isatty_LICENSE`](third_party_licenses/github.com_mattn_go-isatty_LICENSE) |
+| [`github.com/mattn/go-runewidth`](https://github.com/mattn/go-runewidth) | MIT | rune width | [`github.com_mattn_go-runewidth_LICENSE`](third_party_licenses/github.com_mattn_go-runewidth_LICENSE) |
+| [`github.com/muesli/ansi`](https://github.com/muesli/ansi) | MIT | ANSI-aware string width | [`github.com_muesli_ansi_LICENSE`](third_party_licenses/github.com_muesli_ansi_LICENSE) |
+| [`github.com/muesli/cancelreader`](https://github.com/muesli/cancelreader) | MIT | cancelable terminal input | [`github.com_muesli_cancelreader_LICENSE`](third_party_licenses/github.com_muesli_cancelreader_LICENSE) |
+| [`github.com/muesli/termenv`](https://github.com/muesli/termenv) | MIT | terminal capabilities | [`github.com_muesli_termenv_LICENSE`](third_party_licenses/github.com_muesli_termenv_LICENSE) |
+| [`github.com/rivo/uniseg`](https://github.com/rivo/uniseg) | MIT | Unicode segmentation | [`github.com_rivo_uniseg_LICENSE`](third_party_licenses/github.com_rivo_uniseg_LICENSE) |
+| [`github.com/xo/terminfo`](https://github.com/xo/terminfo) | MIT | terminfo lookup | [`github.com_xo_terminfo_LICENSE`](third_party_licenses/github.com_xo_terminfo_LICENSE) |
 
 `scripts/check-third-party-licenses.py` derives the linked modules from the
-release platforms' build graphs and fails when a module lacks a retained
+macOS and Linux release build graphs and fails when a module lacks a retained
 license, the retained text differs from the module's own, or this notice does
 not reference it.
 

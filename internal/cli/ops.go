@@ -61,6 +61,9 @@ type loginOptions struct {
 	Ask             bool
 	Stdin           bool
 	AddQuick        string
+	// Source is an explicit password source supplied by the interactive
+	// interface; it counts like a credential flag.
+	Source credential.Source
 }
 
 func (a *App) login(ctx context.Context, target Target, opts loginOptions) error {
@@ -282,6 +285,9 @@ func (a *App) resolveCredential(ctx context.Context, opts loginOptions) (string,
 	}
 	if opts.Stdin {
 		explicit = append(explicit, credential.Line{Reader: a.input()})
+	}
+	if opts.Source != nil {
+		explicit = append(explicit, opts.Source)
 	}
 	if len(explicit) > 1 {
 		return "", "", usage.Errorf("credential sources are mutually exclusive: choose one of --password-command, --password-stdin, or --ask")

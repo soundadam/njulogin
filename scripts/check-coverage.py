@@ -29,6 +29,8 @@ CRITICAL_FUNCTIONS = {
     "internal/credential/store.go:Save",
     "internal/sshtunnel/sshtunnel.go:DialContext",
     "internal/transport/transport.go:NewHTTPClient",
+    "internal/cli/tui.go:connect",
+    "internal/tui/model.go:Update",
 }
 
 

@@ -475,10 +475,6 @@ func TestDefaultRemoteSettingsUseNoRemoteProxyOrRuntime(t *testing.T) {
 	}
 }
 
-type fixedSecret string
-
-func (s fixedSecret) Secret(context.Context) (string, error) { return string(s), nil }
-
 func TestSetupStoresLocalCredential(t *testing.T) {
 	app := newTestApp(t, "synthetic-user\n")
 	app.SetupSecret = fixedSecret("synthetic-secret")
@@ -527,29 +523,71 @@ func TestReportsNormalizeControlCharacters(t *testing.T) {
 	}
 }
 
-func TestPromptsAndInteractiveGuards(t *testing.T) {
-	app := newTestApp(t, "value\n\n\n")
-	if value, err := app.promptRequired("prompt: "); err != nil || value != "value" {
-		t.Fatalf("promptRequired value=%q err=%v", value, err)
+func TestPromptLineReadsSharedInput(t *testing.T) {
+	app := newTestApp(t, "first\nsecond\n")
+	for _, want := range []string{"first", "second"} {
+		if value, err := app.promptLine("prompt: "); err != nil || value != want {
+			t.Fatalf("promptLine value=%q err=%v, want %q", value, err, want)
+		}
 	}
-	options := []menuOption{{Key: "1", Label: "local"}, {Key: "2", Label: "ssh"}}
-	if value, err := app.promptMenuChoice("choice", options, "1"); err != nil || value != "1" {
-		t.Fatalf("promptMenuChoice value=%q err=%v", value, err)
+	if app.err.String() != "prompt: prompt: " {
+		t.Fatalf("prompts = %q", app.err.String())
 	}
-	if value, err := app.promptQuickLoginName("synthetic-default"); err != nil || value != "synthetic-default" {
-		t.Fatalf("promptQuickLoginName value=%q err=%v", value, err)
+}
+
+func TestInteractiveBackendRunsDocumentedOperations(t *testing.T) {
+	app := newTestApp(t, "")
+	p := &fakePortal{onlinePresent: true}
+	startPortal(t, app, p)
+	ctx := context.Background()
+
+	if _, err := app.connect("-oProxyCommand=x"); !usage.Is(err) {
+		t.Fatalf("connect accepted an option-shaped host: %v", err)
 	}
-	if _, err := resolveMenuChoice("9", "1", options); err == nil {
-		t.Fatal("accepted an unknown menu choice")
+	b, err := app.connect("")
+	if err != nil {
+		t.Fatalf("connect: %v", err)
 	}
-	if err := app.interactive(context.Background()); err == nil {
-		t.Fatal("interactive mode ran without a terminal")
+	if b.HasSavedCredential() {
+		t.Fatal("empty credential directory reported a saved credential")
 	}
-	if err := app.runAction(context.Background(), Local{}, "unsupported"); err == nil || err.Error() != "unsupported local action: unsupported" {
-		t.Fatalf("local err = %v", err)
+	var out bytes.Buffer
+	if err := b.Login(ctx, &out, "", ""); !usage.Is(err) {
+		t.Fatalf("login without any credential: %v", err)
 	}
-	if err := app.runAction(context.Background(), SSH{Host: "synthetic-host"}, "unsupported"); err == nil || err.Error() != "unsupported remote action: unsupported" {
-		t.Fatalf("remote err = %v", err)
+	if err := b.Setup(ctx, &out, "synthetic-user", "synthetic-secret"); err != nil || !b.HasSavedCredential() {
+		t.Fatalf("setup err=%v", err)
+	}
+	out.Reset()
+	if err := b.Login(ctx, &out, "", ""); err != nil || !strings.HasPrefix(out.String(), "state=authenticated") {
+		t.Fatalf("saved login output=%q err=%v", out.String(), err)
+	}
+	if err := b.Login(ctx, &out, "synthetic-user", "typed-secret"); err != nil || p.logins[len(p.logins)-1]["password"] != "typed-secret" {
+		t.Fatalf("typed login err=%v", err)
+	}
+
+	snapshot := b.Snapshot(ctx)
+	if snapshot.StatusErr != nil || !snapshot.Status.Authenticated || len(snapshot.Online) != 1 || len(snapshot.Quick) != 0 {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	for _, step := range []func() error{
+		func() error { return b.QuickAdd(ctx, &out, "synthetic-device") },
+		func() error { return b.QuickDelete(ctx, &out, "synthetic-device") },
+		func() error { return b.Kick(ctx, &out, 1) },
+		func() error { return b.Logout(ctx, &out) },
+	} {
+		out.Reset()
+		if err := step(); err != nil {
+			t.Fatalf("operation output=%q err=%v", out.String(), err)
+		}
+	}
+	if app.out.Len() != 0 {
+		t.Fatalf("interactive operations wrote to standard output: %q", app.out.String())
+	}
+
+	remote, err := app.connect("synthetic-host")
+	if err != nil || remote.Name() != "ssh synthetic-host" || remote.DeviceName() != "synthetic-host" {
+		t.Fatalf("remote backend = %v, %v", remote, err)
 	}
 }
 
