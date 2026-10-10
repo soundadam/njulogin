@@ -2,53 +2,22 @@
 
 Status: normative
 
-This document defines the gates for the private `0.1.0` distribution and for a
-future first public release. A private GitHub repository does not make its tag
-archives or release assets anonymously downloadable, so private Homebrew
-installation uses an authenticated, checksum-pinned release asset.
+This document defines the gates for each `njulogin` release.
 
-## Private 0.1.0 distribution
+## Release shape
 
-The private release shape is:
+A release is:
 
-- one private GitHub repository named `soundadam/njulogin`;
-- one annotated semantic-version tag;
-- one private GitHub Release containing a deterministic source archive;
-- one Formula in the public `soundadam/homebrew-tap` repository;
-- authenticated asset download through `HOMEBREW_GITHUB_API_TOKEN`.
-
-The Formula records the GitHub release asset ID and exact SHA-256. The token is
-supplied by the installer or tap CI, is not committed, and is not embedded in
-the installed binary. Installers without read access to the private repository
-cannot fetch the source asset.
-
-Before publishing the private Formula:
-
-- the private repository and tag must resolve to the reviewed commit;
-- the uploaded asset must match the locally accepted deterministic archive;
-- the Formula must pass style, strict audit, authenticated source installation,
-  Formula tests, version/help smoke checks, and installed-product acceptance;
-- tap CI must receive a repository secret with read-only access to the private
-  product repository;
-- repository, Release, tap proposal, and tap merge actions require explicit
-  owner authorization.
-
-The remaining sections define the stricter transition to a future public source
-release.
-
-## First-release shape
-
-The first public release is:
-
-- one public Git repository named `soundadam/njulogin`;
-- one annotated semantic-version tag;
+- one annotated semantic-version tag in the public repository
+  `soundadam/njulogin`;
 - one GitHub source release for that tag;
-- one Homebrew Formula that builds from the immutable tag archive.
+- one Homebrew Formula in `soundadam/homebrew-tap` that builds from the
+  immutable tag archive.
 
-The first release does not include a prebuilt macOS binary, installer, daemon,
+A release does not include a prebuilt macOS binary, installer, daemon,
 background service, telemetry, or automatic credential migration.
 
-## First-release closure requirements
+## Release closure requirements
 
 The following remain mandatory release gates even after local implementation
 evidence exists. Hosted CI, independent review, tap integration, and macOS
@@ -71,28 +40,11 @@ acceptance must still bind the exact release candidate:
 
 No release task may bypass these items by weakening the contract.
 
-## Gate A: public repository
+## Gate A: release candidate and pre-tag acceptance
 
-Before repository visibility becomes public:
+Before each tag:
 
-- the full tracked tree and Git history pass secret review;
-- `SPEC.md`, README, architecture, security, provenance, contributing, and
-  release documents agree on scope;
-- license and third-party notices are complete for source distribution;
-- the default branch contains no generated binaries or private fixtures;
-- GitHub private vulnerability reporting is enabled and its private reporting
-  flow has been verified;
-- repository description and topics do not claim unsupported products or
-  platforms;
-- the owner deliberately approves publication.
-
-Publishing the repository does not authorize a tag or Formula.
-
-## Gate B: release candidate and pre-tag acceptance
-
-Before the first tag:
-
-- all first-release closure requirements are complete;
+- all release closure requirements are complete;
 - `make release-check` passes locally on the exact commit proposed for the tag;
 - product source CI passes on its Linux runner;
 - dependency verification and vulnerability review pass;
@@ -136,9 +88,9 @@ a source checkout. It records no secret or raw response. The operator confirms:
 Acceptance notes contain only pass/fail, source commit, package version,
 platform version, and sanitized observations.
 
-## Gate C: immutable source tag and GitHub release
+## Gate B: immutable source tag and GitHub release
 
-After Gate B passes:
+After Gate A passes:
 
 - create and push one annotated tag pointing to the accepted, CI-tested commit;
 - verify the remote tag resolves to that exact commit;
@@ -161,9 +113,9 @@ After Gate B passes:
 A failed post-tag verification does not authorize moving or replacing the tag.
 Stop the release and use a new version.
 
-## Gate D: Homebrew tap publication
+## Gate C: Homebrew tap publication
 
-After Gate C passes:
+After Gate B passes:
 
 - update `Formula/njulogin.rb` and the dedicated tap CI job in one tap branch;
 - obtain explicit owner authorization to push the tap proposal branch and open

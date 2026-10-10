@@ -40,18 +40,6 @@ SSH tunnel. The SSH server can observe destination metadata and traffic timing,
 but not the TLS plaintext. `--insecure` disables local TLS verification only for
 that explicit invocation and emits a warning.
 
-## Private Homebrew source access
-
-The private Homebrew Formula downloads a checksum-pinned GitHub Release asset
-through the GitHub API. `HOMEBREW_GITHUB_API_TOKEN` must grant read access to
-the private repository. Homebrew defers expansion of this sensitive environment
-value until download time; the token is not written into the Formula, source
-archive, build metadata, or installed executable.
-
-Tap CI stores a dedicated repository secret for authenticated source download.
-The secret must not be printed, passed as a command-line value, or made available
-to unrelated workflow jobs.
-
 ## Output and error handling
 
 Normal reports mask accounts, names, and MAC addresses, omit IP addresses, and

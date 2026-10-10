@@ -9,12 +9,6 @@ This repository was extracted from the former `adam-network-tools` workspace.
 It is independent of SoundVPN, NJUConnect, EasyConnect, proxy selection, and
 server desired state.
 
-## Status
-
-The product repository and release assets are private. The public Homebrew tap
-contains only Formula metadata; installing `njulogin` requires a GitHub token
-that has read access to the private `soundadam/njulogin` repository.
-
 ## Build
 
 Requirements:
@@ -124,24 +118,14 @@ and emits a warning.
 
 ## Homebrew
 
-Private releases are installed from a checksum-pinned GitHub Release asset. Set
-a GitHub token with read access to the private product repository, then install
-from the public tap:
-
 ```sh
-export HOMEBREW_GITHUB_API_TOKEN="$(gh auth token)"
-brew tap soundadam/tap
 brew install soundadam/tap/njulogin
 ```
 
-The token is used only by Homebrew to request the private release asset through
-the GitHub API. It is not embedded in the Formula or installed binary.
-
-The repository keeps separate Formula templates for private authenticated
-release assets and for a future public source archive:
+The Formula builds from the checksum-pinned archive of a release tag. It is
+rendered from `packaging/Formula/njulogin.rb.in`:
 
 ```sh
-scripts/render-private-formula.sh VERSION ASSET_ID SHA256 OUTPUT
 scripts/render-formula.sh VERSION URL SHA256 OUTPUT
 ```
 

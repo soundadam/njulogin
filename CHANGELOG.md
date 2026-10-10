@@ -10,6 +10,8 @@
   `net/url`, `crypto/tls`, and `encoding/asn1`.
 - Accept source changes from any maintainer clone through pull requests to
   `main`; release acceptance still uses a Homebrew-installed candidate.
+- Publish the source repository. The Homebrew Formula builds from the public
+  tag archive and no longer needs a GitHub token.
 
 ## 0.1.1 - 2026-07-27
 

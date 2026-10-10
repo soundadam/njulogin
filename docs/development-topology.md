@@ -8,7 +8,7 @@ keeps release acceptance on the installed product rather than a source build.
 
 ## Source authority
 
-The source authority is the `main` branch of the private GitHub repository
+The source authority is the `main` branch of the public GitHub repository
 `soundadam/njulogin`. The Homebrew tap's authority is the `main` branch of
 `soundadam/homebrew-tap`.
 
