@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,7 +31,8 @@ type Status struct {
 }
 
 // Row is one online-device or quick-login record. Rows stay untyped because
-// the portal returns ids as either strings or numbers.
+// the portal returns ids as either strings or numbers; numbers decode as
+// json.Number so ids wider than a float64 mantissa keep every digit.
 type Row map[string]any
 
 // ID is the record identifier as the portal formats it.
@@ -107,7 +109,9 @@ func parseRows(response *Response, kind string) ([]Row, error) {
 	var results struct {
 		Rows *[]Row `json:"rows"`
 	}
-	if err := json.Unmarshal(response.Results, &results); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(response.Results))
+	decoder.UseNumber()
+	if err := decoder.Decode(&results); err != nil {
 		return nil, err
 	}
 	if results.Rows == nil {

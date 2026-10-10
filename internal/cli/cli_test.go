@@ -254,7 +254,7 @@ func TestKickByIndexVerifiesTargetAbsent(t *testing.T) {
 }
 
 func TestOnlineIDAtIndex(t *testing.T) {
-	rows := []portal.Row{{"id": "a1"}, {"id": float64(42)}, {}}
+	rows := []portal.Row{{"id": "a1"}, {"id": json.Number("42")}, {}}
 	if id, err := onlineIDAtIndex(rows, 2); err != nil || id != "42" {
 		t.Fatalf("id=%q err=%v", id, err)
 	}

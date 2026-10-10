@@ -3,6 +3,7 @@
 package redact
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -79,6 +80,12 @@ func Unix(value int64) string {
 // AnyUnix formats a timestamp decoded from untyped JSON.
 func AnyUnix(value any) string {
 	switch cast := value.(type) {
+	case json.Number:
+		seconds, err := cast.Int64()
+		if err != nil {
+			return "unknown"
+		}
+		return Unix(seconds)
 	case float64:
 		return Unix(int64(cast))
 	case int64:

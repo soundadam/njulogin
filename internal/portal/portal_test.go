@@ -171,6 +171,10 @@ func TestListResponsesRequireExplicitRows(t *testing.T) {
 	if rows, err := ParseOnlineRows(empty); err != nil || len(rows) != 0 {
 		t.Fatalf("online empty rows = %#v, %v", rows, err)
 	}
+	wide := &Response{Results: json.RawMessage(`{"rows":[{"id":17733220524964001,"device":"synthetic"}]}`)}
+	if rows, err := ParseQuickRows(wide); err != nil || rows[0].ID() != "17733220524964001" {
+		t.Fatalf("wide numeric id = %#v, %v", rows, err)
+	}
 	if rows, err := ParseQuickRows(&Response{ReplyCode: 404}); err != nil || len(rows) != 0 {
 		t.Fatalf("quick 404 = %#v, %v", rows, err)
 	}
@@ -216,7 +220,7 @@ func TestPollRowsRetriesUntilDone(t *testing.T) {
 }
 
 func TestRowPredicatesMatchNumericAndPaddedValues(t *testing.T) {
-	rows := []Row{{"id": float64(42), "device": " synthetic-device "}}
+	rows := []Row{{"id": json.Number("42"), "device": " synthetic-device "}}
 	if IDAbsent("42")(rows) {
 		t.Fatal("numeric id was not matched")
 	}

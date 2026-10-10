@@ -1,6 +1,9 @@
 package redact
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestMasksKeepReportsRedacted(t *testing.T) {
 	cases := []struct{ got, want string }{
@@ -30,6 +33,9 @@ func TestNormalizeCannotStartANewRecord(t *testing.T) {
 }
 
 func TestUntypedValues(t *testing.T) {
+	if AnyUnix(json.Number("1")) != Unix(1) || AnyUnix(json.Number("1.5")) != "unknown" {
+		t.Fatal("AnyUnix mishandled a JSON number")
+	}
 	if AnyUnix("1") != "unknown" || AnyUnix(float64(0)) != "unknown" || AnyUnix(float64(1)) == "unknown" {
 		t.Fatal("AnyUnix accepted a non-numeric or non-positive timestamp")
 	}
