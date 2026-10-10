@@ -24,7 +24,7 @@ sha256="$(sha256sum "$archive" | awk '{print $1}')"
   "$sha256" \
   "$formula"
 
-test "$(stat -c '%a' "$formula")" = 644
+test -n "$(find "$formula" -perm 644)"
 test "$(grep -c '@VERSION@\|@URL@\|@SHA256@' "$formula" || true)" -eq 0
 if grep -q '^  version ' "$formula"; then
   echo "Formula contains a redundant explicit version" >&2

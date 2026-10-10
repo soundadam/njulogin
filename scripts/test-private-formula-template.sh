@@ -18,7 +18,7 @@ mkdir -p "$formula_dir"
   "$sha256" \
   "$formula"
 
-test "$(stat -c '%a' "$formula")" = 644
+test -n "$(find "$formula" -perm 644)"
 test "$(grep -c '@VERSION@\|@ASSET_ID@\|@SHA256@' "$formula" || true)" -eq 0
 grep -q "releases/assets/$asset_id" "$formula"
 grep -q 'class PrivateGitHubReleaseAssetDownloadStrategy' "$formula"
