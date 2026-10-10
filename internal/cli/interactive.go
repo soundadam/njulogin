@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/soundadam/njulogin/internal/credential"
+	"github.com/soundadam/njulogin/internal/usage"
 )
 
 type menuOption struct {
@@ -72,7 +74,11 @@ func (a *App) runAction(ctx context.Context, target Target, action string) error
 		if err != nil {
 			return err
 		}
-		return a.operation(ctx, target, "kick", []string{"--index", index})
+		number, err := strconv.Atoi(index)
+		if err != nil {
+			return usage.Errorf("invalid --index %q", index)
+		}
+		return a.kick(ctx, target, "", number)
 	case "7":
 		name, err := a.promptQuickLoginName(target.DeviceName())
 		if err != nil {

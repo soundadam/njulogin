@@ -67,6 +67,8 @@ njulogin quick add --name NAME
 njulogin quick delete --id ID
 njulogin remote [flags] <ssh-host> <operation>
 njulogin version
+njulogin completion bash|zsh|fish|powershell
+njulogin help [command]
 ```
 
 Running `njulogin` in a terminal opens an interactive menu. Noninteractive use

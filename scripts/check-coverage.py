@@ -9,7 +9,8 @@ import sys
 # their receiver, so the file disambiguates them.
 CRITICAL_FUNCTIONS = {
     "internal/cli/commands.go:Run",
-    "internal/cli/commands.go:remote",
+    "internal/cli/commands.go:remoteCommand",
+    "internal/cli/commands.go:operationCommands",
     "internal/cli/ops.go:setup",
     "internal/cli/ops.go:status",
     "internal/cli/ops.go:info",

@@ -9,8 +9,14 @@ rules as executable requirements.
 
 ## Invocation rules
 
-- `njulogin help`, `njulogin --help`, and `njulogin -h` are read-only.
+- `njulogin help [command]`, `njulogin --help`, `njulogin -h`, and `-h` or
+  `--help` after any command are read-only and write help to standard output.
 - `njulogin version` and `njulogin --version` are read-only.
+- `njulogin completion bash|zsh|fish|powershell` is read-only and writes a
+  shell completion script to standard output.
+- Flags use `--name value` or `--name=value`. Boolean flags also accept
+  `--name` alone. An unknown flag or an unparseable flag value is invalid
+  syntax.
 - Running `njulogin` without a subcommand opens the interactive interface only
   when both standard input and standard output are terminals.
 - Running without a subcommand in a non-terminal context prints usage to
@@ -48,7 +54,8 @@ and environment variables are not public compatibility surfaces.
 | `remote ... quick add` | Required `--name NAME`. |
 | `remote ... quick delete` | Required `--id ID`. |
 | `njulogin version`, `njulogin --version` | No additional arguments. |
-| `njulogin help`, `njulogin --help`, `njulogin -h` | No additional arguments. |
+| `njulogin help`, `njulogin --help`, `njulogin -h` | Optional command path, such as `help remote`. |
+| `njulogin completion` | One of `bash`, `zsh`, `fish`, `powershell`. |
 
 The supported environment inputs are:
 
@@ -86,7 +93,8 @@ The implementation MUST return nonzero when any of these occurs:
 
 ## Output streams
 
-- Standard output contains command results only.
+- Standard output contains command results, requested help, and completion
+  scripts only.
 - Standard error contains prompts, warnings, usage errors, and diagnostics.
 - Password prompts and interactive questions are written to standard error.
 - Error messages MUST NOT echo a password, cookie, QR URL, token, complete

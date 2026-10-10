@@ -13,6 +13,22 @@ The compiled `njulogin` executable uses:
   License, used indirectly by `golang.org/x/term`. The exact license text is
   retained at
   [`third_party_licenses/golang.org_x_sys_LICENSE`](third_party_licenses/golang.org_x_sys_LICENSE).
+- [`github.com/spf13/cobra`](https://github.com/spf13/cobra), Apache License
+  2.0, for command parsing and help. The exact license text is retained at
+  [`third_party_licenses/github.com_spf13_cobra_LICENSE`](third_party_licenses/github.com_spf13_cobra_LICENSE).
+- [`github.com/spf13/pflag`](https://github.com/spf13/pflag), BSD-3-Clause
+  License, used by cobra for flag parsing. The exact license text is retained
+  at
+  [`third_party_licenses/github.com_spf13_pflag_LICENSE`](third_party_licenses/github.com_spf13_pflag_LICENSE).
+- [`github.com/inconshreveable/mousetrap`](https://github.com/inconshreveable/mousetrap),
+  Apache License 2.0, linked by cobra into Windows builds only. The exact
+  license text is retained at
+  [`third_party_licenses/github.com_inconshreveable_mousetrap_LICENSE`](third_party_licenses/github.com_inconshreveable_mousetrap_LICENSE).
+
+`scripts/check-third-party-licenses.py` derives the linked modules from the
+release platforms' build graphs and fails when a module lacks a retained
+license, the retained text differs from the module's own, or this notice does
+not reference it.
 
 The product's portal operation model was informed by
 [`Do1e/NJUlogin`](https://github.com/Do1e/NJUlogin), MIT License. The upstream

@@ -281,8 +281,16 @@ func TestStatusInfoVersionAndHelpDispatch(t *testing.T) {
 	if output, err := app.run(t, "version"); err != nil || !strings.HasPrefix(output, "njulogin ") {
 		t.Fatalf("version output=%q err=%v", output, err)
 	}
-	if _, err := app.run(t, "help"); err != nil || !strings.HasPrefix(app.err.String(), "Usage:") {
-		t.Fatalf("help err=%v stderr=%q", err, app.err.String())
+	for _, args := range [][]string{{"help"}, {"--help"}, {"-h"}, {"help", "login"}, {"login", "-h"}, {"remote", "h", "kick", "--help"}} {
+		if output, err := app.run(t, args...); err != nil || !strings.Contains(output, "Usage:") {
+			t.Fatalf("%q output=%q err=%v", args, output, err)
+		}
+	}
+	if output, err := app.run(t, "completion", "zsh"); err != nil || !strings.HasPrefix(output, "#compdef njulogin") {
+		t.Fatalf("completion output=%.40q err=%v", output, err)
+	}
+	if output, err := app.run(t, "--version"); err != nil || output != "njulogin dev\n" {
+		t.Fatalf("--version output=%q err=%v", output, err)
 	}
 }
 
@@ -305,6 +313,13 @@ func TestSyntaxErrorsAvoidNetworkWork(t *testing.T) {
 		{"login", "positional"},
 		{"setup", "--username", " "},
 		{"remote", "synthetic-host"},
+		{"login", "--unknown-flag"},
+		{"kick", "--index", "one"},
+		{"qr", "--timeout", "soon"},
+		{"remote", "-oProxyCommand=x", "status"},
+		{"remote", "--", "-oProxyCommand=x", "status"},
+		{"remote", "synthetic-host", "login", "--password", "x"},
+		{"remote", "synthetic-host", "qr", "--timeout", "1s"},
 		{"remote", "--connect-timeout", "0", "synthetic-host", "status"},
 		{"remote", "--max-time", "3601", "synthetic-host", "status"},
 		{"remote", "--base-url", "http://example.invalid", "synthetic-host", "status"},
