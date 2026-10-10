@@ -6,13 +6,26 @@ governed by [`SPEC.md`](../SPEC.md) and
 
 ## Components
 
-- `cmd/njulogin/main.go` owns CLI parsing, local credentials, portal operations,
-  CAS QR state, output, and postcondition verification.
-- `cmd/njulogin/ssh_tunnel.go` adapts OpenSSH `-W` direct-tcpip stdio channels
-  into local `net.Conn` values used by Go's HTTP transport.
-- `cmd/njulogin/subprocess_unix.go` and `subprocess_other.go` provide bounded
-  subprocess cancellation, including process-group termination on Unix-like
-  systems.
+- `cmd/njulogin` is the entry point; it links the version and calls
+  `internal/cli`.
+- `internal/cli` owns argument parsing, the interactive menu, credential-source
+  selection, and output records. Every command runs once against a `Target`:
+  `Local` reaches the portal directly, `SSH` through a tunnel. Local and remote
+  operations differ only in the target they receive.
+- `internal/portal` speaks the portal JSON API behind the `portal.API`
+  interface and verifies postconditions with `portal.Poll`.
+- `internal/cas` drives the CAS QR login; a `cas.Renderer` draws the QR code
+  locally.
+- `internal/credential` persists the local credential behind `credential.Store`
+  and reads passwords from `credential.Source` implementations: password
+  command, standard input, or no-echo terminal prompt.
+- `internal/transport` builds the HTTP clients. A `transport.Dialer` decides
+  where TCP connections originate; HTTP, TLS, and cookies stay in-process.
+- `internal/sshtunnel` is the `Dialer` that adapts OpenSSH `-W` direct-tcpip
+  stdio channels into `net.Conn` values.
+- `internal/proc` provides bounded subprocess cancellation, including
+  process-group termination on Unix-like systems.
+- `internal/redact` normalizes and masks untrusted portal fields.
 - `tools/NJUlogin/` contains source-level compatibility and diagnostic wrappers.
   Homebrew does not install them.
 

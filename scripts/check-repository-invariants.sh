@@ -26,14 +26,13 @@ if rg -ni 'keychain-service|remote_qr_bootstrap|NJU_PROXY_URL|PNJU_INSECURE' \
   exit 1
 fi
 
-if rg -n '"(curl|python|python3)"|sh -c|remote helper' \
-  cmd/njulogin/main.go cmd/njulogin/ssh_tunnel.go \
-  cmd/njulogin/subprocess_unix.go cmd/njulogin/subprocess_other.go; then
+if rg -n --glob '*.go' --glob '!*_test.go' --glob '!internal/testutil/**' \
+  '"(curl|python|python3)"|sh -c|remote helper' cmd internal; then
   echo "The installed Go product must not execute portal tooling on the remote host." >&2
   exit 1
 fi
 
-if ! grep -q '"-W"' cmd/njulogin/ssh_tunnel.go; then
+if ! grep -q '"-W"' internal/sshtunnel/sshtunnel.go; then
   echo "The SSH transport must remain an OpenSSH -W direct-tcpip tunnel." >&2
   exit 1
 fi
