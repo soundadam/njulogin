@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Select the patched Go 1.27.2 toolchain for source and CI builds. The Go 1.25
+  line has no release that fixes GO-2026-5026, GO-2026-5972, GO-2026-6090,
+  GO-2026-6218, GO-2026-6603, GO-2026-6605, GO-2026-6607, GO-2026-6608,
+  GO-2026-6610, GO-2026-6611, GO-2026-6612, GO-2026-6613, or GO-2026-6617,
+  which `govulncheck` reports as reachable from `net/http`, `net/textproto`,
+  `net/url`, `crypto/tls`, and `encoding/asn1`.
+
 ## 0.1.1 - 2026-07-27
 
 - Replace the private Release asset Formula headers with a dedicated Homebrew

@@ -25,7 +25,9 @@ jobs:
       - njulogin
     timeout-minutes: 15
     env:
-      STATICCHECK_VERSION: v0.7.0
+      # Go 1.27.2 export data needs go-tools f1838cc (x/tools v0.51.0), which no
+      # staticcheck release contains yet; this pins the master commit after it.
+      STATICCHECK_VERSION: v0.7.0-0.dev.0.20261009230814-452d5bb86b45
       ACTIONLINT_VERSION: v1.7.12
       GOVULNCHECK_VERSION: v1.6.0
       SHELLCHECK_VERSION: v0.11.0
@@ -42,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           go version
-          test "$(go env GOVERSION)" = "go1.25.12"
+          test "$(go env GOVERSION)" = "$(awk '$1 == "toolchain" { print $2 }' go.mod)"
           ruby --version
 
       - name: Install pinned validation tools
