@@ -39,14 +39,12 @@ shell-check:
 	bash -n tools/NJUlogin/njulogin-portal.sh
 	bash -n tools/NJUlogin/njulogin-remote.sh
 	bash -n scripts/render-formula.sh
-	bash -n scripts/render-private-formula.sh
 	bash -n scripts/check-repository-invariants.sh
 	bash -n scripts/test-compatibility-tools.sh
 	bash -n scripts/test-formula-template.sh
-	bash -n scripts/test-private-formula-template.sh
-	shellcheck scripts/render-formula.sh scripts/render-private-formula.sh \
+	shellcheck scripts/render-formula.sh \
 		scripts/check-repository-invariants.sh scripts/test-compatibility-tools.sh \
-		scripts/test-formula-template.sh scripts/test-private-formula-template.sh \
+		scripts/test-formula-template.sh \
 		tools/NJUlogin/njulogin-portal.sh tools/NJUlogin/njulogin-remote.sh
 
 compatibility-check:
@@ -74,7 +72,6 @@ license-check:
 
 formula-check:
 	bash scripts/test-formula-template.sh
-	bash scripts/test-private-formula-template.sh
 
 smoke-check: VERSION=0.0.0-check
 smoke-check: build
