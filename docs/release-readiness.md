@@ -67,7 +67,7 @@ acceptance must still bind the exact release candidate:
 8. Documentation must say **service-isolated**, not **network-offline**, unless a clean empty-module-cache build is proven.
 9. The Formula must omit a redundant explicit `version` when the tag URL already provides it.
 10. `soundadam/homebrew-tap` CI must watch `Formula/njulogin.rb` and run a dedicated audit, source-install, and Formula-test job.
-11. The development topology migration must be complete: Elon is the canonical source host, product CI runs on Linux, and macOS acceptance uses a Homebrew-installed candidate only.
+11. Product CI runs on Linux, and macOS acceptance uses a Homebrew-installed candidate only, as defined in `docs/development-topology.md`.
 
 No release task may bypass these items by weakening the contract.
 
@@ -93,13 +93,13 @@ Publishing the repository does not authorize a tag or Formula.
 Before the first tag:
 
 - all first-release closure requirements are complete;
-- `make release-check` passes from the canonical Elon checkout;
+- `make release-check` passes locally on the exact commit proposed for the tag;
 - product source CI passes on its Linux runner;
 - dependency verification and vulnerability review pass;
 - changelog, intended release notes, and intended tag version agree, and the
   release notes identify the applicable contract version;
 - CI passes on the exact clean main-branch commit proposed for the tag;
-- Elon creates a local-only, release-shaped source archive from that exact
+- a maintainer clone creates a local-only, release-shaped source archive from that exact
   commit with the intended release version and normalized file modes;
 - a candidate Formula using the local archive passes `brew style`, strict
   audit, source installation with Homebrew API installation disabled, and
@@ -191,7 +191,7 @@ Contract version:
 Source commit:
 Product pull-request CI:
 Product main-branch CI:
-Elon release-check:
+Local release-check:
 Pre-tag candidate source aggregate SHA-256:
 Pre-tag candidate archive SHA-256:
 Pre-tag candidate Formula SHA-256:
@@ -218,9 +218,9 @@ checksum and the two fields MUST remain distinct.
 
 ## Release procedure
 
-1. Complete one release-only branch on Elon containing version, changelog,
+1. Complete one release-only branch containing version, changelog,
    intended release notes, and release documentation changes.
-2. Run `make release-check` on Elon and require product pull-request CI to pass.
+2. Run `make release-check` locally and require product pull-request CI to pass.
 3. Merge the release-only branch, verify product main-branch CI, and record the
    exact clean main commit proposed for release.
 4. From that exact commit, create a local-only release-shaped source archive and

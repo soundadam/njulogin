@@ -11,11 +11,6 @@ server desired state.
 
 ## Status
 
-The canonical writable checkout is
-`/home/adam/projects/homebrew-upload/products/njulogin` on the Elon Linux host.
-The local macOS machine is reserved for Homebrew installation and installed
-candidate acceptance.
-
 The product repository and release assets are private. The public Homebrew tap
 contains only Formula metadata; installing `njulogin` requires a GitHub token
 that has read access to the private `soundadam/njulogin` repository.

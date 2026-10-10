@@ -21,13 +21,13 @@ part of the installed product path.
 
 ## Development and acceptance environments
 
-The canonical source tree is on the Elon Linux host. Source edits, tests,
-linting, review, and release preparation occur there. Product source CI runs the
-same service-isolated gate on Linux.
+Source work happens on a branch in any maintainer clone and reaches `main`
+through a pull request. Product source CI runs the same service-isolated gate
+on Linux.
 
-The local macOS machine is an installed-product acceptance environment. It
-receives a candidate through Homebrew and exercises the installed binary. It
-does not act as a second source tree. The normative workflow is defined in
+The maintainer's macOS machine is also the installed-product acceptance
+environment: it receives a candidate through Homebrew and exercises the
+installed binary. The normative workflow is defined in
 [`docs/development-topology.md`](development-topology.md).
 
 ## Local credential storage

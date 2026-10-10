@@ -9,18 +9,9 @@ product redesign.
 ## Environment authority
 
 The maintainer environment roles are normative in
-[`docs/development-topology.md`](development-topology.md).
-
-- All source and documentation changes occur in the canonical Elon working
-  tree.
-- `make check` and local pre-review evidence are produced on Elon.
-- The local macOS machine installs a Homebrew candidate for acceptance and
-  does not edit or build directly from a product source checkout.
-- A macOS acceptance failure becomes a scoped defect report; the correction
-  returns to the Elon work sequence below.
-
-This separation does not prevent external contributors from building source.
-It controls the maintainer's authoritative iteration and release evidence.
+[`docs/development-topology.md`](development-topology.md). Source and
+documentation changes reach `main` only through pull requests, and release
+acceptance uses a Homebrew-installed candidate.
 
 ## Change brief
 
@@ -124,7 +115,7 @@ been vendored.
 ## Repository gate
 
 `make check` is the single required local correctness gate and runs in the
-canonical Elon working tree. Product source CI runs the corresponding gate on
+clone that makes each commit. Product source CI runs the corresponding gate on
 Linux. Before the first public tag it must cover, directly or through scripts:
 
 - formatting and whitespace checks;
@@ -191,14 +182,14 @@ A change is complete only when:
 
 - its change brief remains accurate;
 - normative docs and tests agree;
-- `make check` passes from the canonical Elon checkout;
+- `make check` passes locally and product source CI passes;
 - no generated or sensitive files are tracked;
 - the diff contains no unrelated feature work;
 - user-visible failure paths return correct nonzero status;
 - release impact is recorded as none, changelog-only, or release-blocking.
 
 macOS installation acceptance is a separate release gate. It does not replace
-the Elon source gate and must use a Homebrew-installed candidate.
+the source gate and must use a Homebrew-installed candidate.
 
 Passing tests alone does not make a contract-changing task complete.
 

@@ -8,6 +8,8 @@
   GO-2026-6610, GO-2026-6611, GO-2026-6612, GO-2026-6613, or GO-2026-6617,
   which `govulncheck` reports as reachable from `net/http`, `net/textproto`,
   `net/url`, `crypto/tls`, and `encoding/asn1`.
+- Accept source changes from any maintainer clone through pull requests to
+  `main`; release acceptance still uses a Homebrew-installed candidate.
 
 ## 0.1.1 - 2026-07-27
 

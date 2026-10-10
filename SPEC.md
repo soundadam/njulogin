@@ -46,6 +46,9 @@ local and SSH-routed operations for:
 It is not a daemon, control plane, network manager, credential synchronizer, or
 remote software deployment system.
 
+The repository, Go module suffix, Formula token, and executable are named
+`njulogin`; `NJUlogin` is only the human-facing product name.
+
 ## Supported surface
 
 The first public release supports:
@@ -113,9 +116,9 @@ explicitly first:
     host.
 12. **Source-first distribution.** The first release is an immutable source tag
     and Homebrew source build, not an unsigned or unnotarized prebuilt binary.
-13. **Separated iteration and acceptance.** Source changes occur in the
-    canonical Elon working tree. The local Mac validates a Homebrew-installed
-    candidate and never becomes a second writable source authority.
+13. **Separated iteration and acceptance.** Source changes reach `main` only
+    through pull requests. Release acceptance validates a Homebrew-installed
+    candidate, never a binary built from a source checkout.
 
 ## Public command set
 

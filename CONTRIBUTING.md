@@ -5,10 +5,8 @@ Read [`SPEC.md`](SPEC.md), the
 [`development contract`](docs/development-contract.md) before changing
 behavior.
 
-Maintainer source iteration occurs only in the canonical Elon checkout defined
-by [`docs/development-topology.md`](docs/development-topology.md). The local
-macOS machine is reserved for installing and accepting a Homebrew candidate.
-Do not make source fixes in a macOS migration archive.
+Work on a branch and propose changes through a pull request; environment roles
+are defined in [`docs/development-topology.md`](docs/development-topology.md).
 
 Start non-trivial work with the change brief defined in the development
 contract. State the governing contract clause, in-scope behavior, explicit
