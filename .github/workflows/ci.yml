@@ -16,13 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Source checks (Linux)
-    runs-on:
-      - self-hosted
-      - Linux
-      - X64
-      - njulogin
+  # Mirrors the local gate in CLAUDE.md.
+  check:
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       # Go 1.27.2 export data needs go-tools f1838cc (x/tools v0.51.0), which no
@@ -39,6 +35,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Verify pinned Go toolchain
         run: |
