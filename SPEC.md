@@ -85,7 +85,8 @@ explicitly first:
    credential write, self-update, or persistent state change occurs without an
    explicit command or interactive selection. The one exception is the
    automatic update check: at most once a day it reads the latest release from
-   the GitHub API and records the result in `update.json` (see
+   the GitHub API and records the result in `update.json`, creating its
+   directory if it is missing (see
    [`docs/security.md`](docs/security.md#updates)).
 2. **Truthful success.** Exit status zero means the documented postcondition was
    satisfied. Portal rejection, malformed or oversized responses, transport

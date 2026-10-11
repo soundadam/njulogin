@@ -994,15 +994,46 @@ func resolveExplicitSecret(command string, ask, stdin bool) (string, error) {
 	}
 }
 
-func configFilePath() (string, error) {
-	if dir := strings.TrimSpace(os.Getenv("NJULOGIN_CONFIG_DIR")); dir != "" {
-		return filepath.Join(dir, "config.json"), nil
-	}
+// defaultConfigDir is <user configuration directory>/njulogin. It holds
+// config.json unless NJULOGIN_CONFIG_DIR is set, and it is always where appkit
+// keeps update.json.
+func defaultConfigDir() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "njulogin", "config.json"), nil
+	return filepath.Join(dir, "njulogin"), nil
+}
+
+func configFilePath() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("NJULOGIN_CONFIG_DIR")); dir != "" {
+		return filepath.Join(dir, "config.json"), nil
+	}
+	dir, err := defaultConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.json"), nil
+}
+
+// createDefaultConfigDir creates the default configuration directory with
+// mode 0700 if it does not exist yet. appkit writes update.json there and
+// would otherwise create the directory 0755, the directory config.json
+// requires to be 0700. An existing directory is left as it is: a permissive
+// one is reported when config.json is read, not silently tightened.
+// Failures are ignored, as appkit ignores a state file it cannot write.
+func createDefaultConfigDir() {
+	dir, err := defaultConfigDir()
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return
+	}
+	_ = os.Chmod(dir, 0o700)
 }
 
 func loadCredentialConfig() (*credentialConfig, error) {
@@ -1867,6 +1898,7 @@ func execute(root *cobra.Command, args []string) error {
 }
 
 func main() {
+	createDefaultConfigDir()
 	notice := cli.StartNotice(application())
 	err := run(os.Args[1:])
 	notice.Print(os.Stderr)

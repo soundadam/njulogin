@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	appkit "github.com/soundadam/appkit/go"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -310,6 +312,65 @@ func TestConfigFilePathUsesOverrideDirectory(t *testing.T) {
 	want := filepath.Join(dir, "config.json")
 	if path != want {
 		t.Fatalf("path = %q, want %q", path, want)
+	}
+}
+
+// useSyntheticUserConfigDir points os.UserConfigDir at a temporary directory
+// and returns njulogin's default configuration directory inside it.
+func useSyntheticUserConfigDir(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("NJULOGIN_CONFIG_DIR", "")
+	dir, err := defaultConfigDir()
+	if err != nil {
+		t.Fatalf("defaultConfigDir: %v", err)
+	}
+	return dir
+}
+
+func dirMode(t *testing.T, dir string) os.FileMode {
+	t.Helper()
+	info, err := os.Lstat(dir)
+	if err != nil {
+		t.Fatalf("Lstat %s: %v", dir, err)
+	}
+	return info.Mode().Perm()
+}
+
+func TestUpdateStateSharesPrivateDefaultConfigDir(t *testing.T) {
+	dir := useSyntheticUserConfigDir(t)
+	createDefaultConfigDir()
+	appkit.LoadAutoCheck(application()).SetEnabled(true)
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("appkit state not written to %s: entries=%v err=%v", dir, entries, err)
+	}
+	if mode := dirMode(t, dir); mode != 0o700 {
+		t.Fatalf("directory mode after update state write = %o, want 0700", mode)
+	}
+	if err := saveCredentialConfig(credentialConfig{Username: "synthetic-user", Password: "synthetic-secret"}); err != nil {
+		t.Fatalf("saveCredentialConfig: %v", err)
+	}
+	appkit.LoadAutoCheck(application()).SetEnabled(true)
+	config, err := loadCredentialConfig()
+	if err != nil || config == nil {
+		t.Fatalf("loadCredentialConfig beside update state: config=%v err=%v", config, err)
+	}
+}
+
+func TestCreateDefaultConfigDirLeavesExistingDirectory(t *testing.T) {
+	dir := useSyntheticUserConfigDir(t)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	createDefaultConfigDir()
+	if mode := dirMode(t, dir); mode != 0o755 {
+		t.Fatalf("existing directory mode = %o, want it left at 0755", mode)
 	}
 }
 

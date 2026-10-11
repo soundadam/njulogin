@@ -57,7 +57,7 @@ The supported environment inputs are:
 
 | Variable | Contract |
 | --- | --- |
-| `NJULOGIN_CONFIG_DIR` | Overrides the directory containing `config.json`; intended for isolated testing and explicit operator-controlled configuration. |
+| `NJULOGIN_CONFIG_DIR` | Overrides the directory containing `config.json`; intended for isolated testing and explicit operator-controlled configuration. It does not move `update.json` ([security](security.md#updates)). |
 | `NJU_PORTAL_BASE_URL` | Explicit diagnostic/test portal override and default remote portal URL. HTTPS is required except for a loopback HTTP test server. Embedded credentials, queries, and fragments are rejected. |
 
 Portal, CAS, and SSH-routed traffic never uses a proxy. The standard proxy
