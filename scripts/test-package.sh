@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds the release archives and checks their names, layout, and the version
-# built into the binary for this host, with the update check disabled.
+# built into the binary for this host. That run's standard error goes to a
+# file, so it makes no update check, and a temporary HOME and XDG_CONFIG_HOME
+# keep the real configuration untouched.
 set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,12 +36,10 @@ while read -r target; do
   done
   if [[ "$target" == "$host" ]]; then
     tar -xzf "$archive" -C "$tmp"
-    mkdir -p "$tmp/config/njulogin" "$tmp/home/Library/Application Support/njulogin"
-    echo '{"enabled": false}' >"$tmp/config/njulogin/update.json"
-    cp "$tmp/config/njulogin/update.json" "$tmp/home/Library/Application Support/njulogin/"
-    got="$(HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" "$tmp/$name/njulogin" version)"
+    got="$(HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/config" "$tmp/$name/njulogin" version 2>"$tmp/version-err")"
     [[ "$got" == "njulogin $version" ]] || {
       echo "$name reports $got" >&2
+      cat "$tmp/version-err" >&2
       exit 1
     }
   fi

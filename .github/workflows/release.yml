@@ -62,10 +62,8 @@ jobs:
         run: |
           set -euo pipefail
           tar -xzf "dist/njulogin-$VERSION-linux-x86_64.tar.gz" -C "$RUNNER_TEMP"
-          # A disabled update check keeps this run off the network.
-          mkdir -p "$RUNNER_TEMP/config/njulogin"
-          echo '{"enabled": false}' >"$RUNNER_TEMP/config/njulogin/update.json"
-          test "$(XDG_CONFIG_HOME="$RUNNER_TEMP/config" "$RUNNER_TEMP/njulogin-$VERSION-linux-x86_64/njulogin" version)" = "njulogin $VERSION"
+          # Standard error is not a terminal here, so the run makes no update check.
+          test "$("$RUNNER_TEMP/njulogin-$VERSION-linux-x86_64/njulogin" version)" = "njulogin $VERSION"
 
       - name: Publish the GitHub Release
         env:

@@ -75,18 +75,16 @@ license-check:
 cask-check:
 	bash scripts/test-cask-template.sh
 
-# A semver build checks for updates; the disabled update.json under a
-# temporary HOME and XDG_CONFIG_HOME keeps the smoke run off the network.
+# A semver build checks for updates only when standard error is a terminal,
+# so every run sends standard error elsewhere to stay off the network. The
+# temporary HOME and XDG_CONFIG_HOME keep the real configuration untouched.
 smoke-check: VERSION=0.0.0-check
 smoke-check: build
 	@set -eu; \
 	tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
-	for dir in "$$tmp/config/njulogin" "$$tmp/home/Library/Application Support/njulogin"; do \
-		mkdir -p "$$dir"; echo '{"enabled": false}' >"$$dir/update.json"; \
-	done; \
 	export HOME="$$tmp/home" XDG_CONFIG_HOME="$$tmp/config"; \
-	test "$$(./bin/njulogin version)" = "njulogin 0.0.0-check"; \
-	test "$$(./bin/njulogin --version)" = "njulogin 0.0.0-check"; \
+	test "$$(./bin/njulogin version 2>"$$tmp/version-err")" = "njulogin 0.0.0-check"; \
+	test "$$(./bin/njulogin --version 2>"$$tmp/version-err")" = "njulogin 0.0.0-check"; \
 	./bin/njulogin help 2>&1 | grep -q '^Usage:'; \
 	set +e; ./bin/njulogin </dev/null >"$$tmp/stdout" 2>"$$tmp/stderr"; status=$$?; set -e; \
 	test "$$status" -eq 2; \

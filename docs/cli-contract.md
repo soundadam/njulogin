@@ -12,7 +12,9 @@ rules as executable requirements.
 - `njulogin help`, `njulogin --help`, and `njulogin -h` are read-only.
 - `njulogin version` and `njulogin --version` are read-only.
 - `njulogin update --check` changes nothing but the update-check state;
-  `njulogin update` is the only command that replaces the installed program.
+  `njulogin update --auto on|off` changes nothing but the automatic-check
+  switch; `njulogin update` is the only command that replaces the installed
+  program.
 - Running `njulogin` without a subcommand opens the interactive interface only
   when both standard input and standard output are terminals.
 - Running without a subcommand in a non-terminal context prints usage to
@@ -49,7 +51,7 @@ and environment variables are not public compatibility surfaces.
 | `remote ... quick list` | No additional arguments. |
 | `remote ... quick add` | Required `--name NAME`. |
 | `remote ... quick delete` | Required `--id ID`. |
-| `njulogin update` | Optional `--check`. |
+| `njulogin update` | Optional `--check` or `--auto on\|off`, not both. |
 | `njulogin version`, `njulogin --version` | No additional arguments. |
 | `njulogin help`, `njulogin --help`, `njulogin -h` | No additional arguments. |
 
@@ -99,7 +101,8 @@ The implementation MUST return nonzero when any of these occurs:
   request URL.
 - Untrusted fields are normalized to one line before they enter stable output.
 - When a newer release is known and standard error is a terminal, one notice
-  line follows the command's output on standard error.
+  line follows the command's output on standard error, unless that command
+  installed it.
 
 ## Stable text records
 
@@ -125,7 +128,7 @@ values MUST NOT be emitted.
 | `quick list` | `quick_login_devices=N` |
 | `quick add` | `result=success` |
 | `quick delete` | `result=success` |
-| `update` | the [appkit](https://github.com/soundadam/appkit#命令行) report of the installed and latest versions |
+| `update` | the [appkit](https://github.com/soundadam/appkit#命令行) report of the installed and latest versions, or with `--auto` of the new switch |
 | `version` | exactly `njulogin <version>` |
 
 Remote operations follow the same result contract as their local equivalent.

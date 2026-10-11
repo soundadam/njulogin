@@ -1807,6 +1807,7 @@ func usage() {
   njulogin quick delete --id ID
   njulogin remote [flags] <ssh-host> <operation>
   njulogin update [--check]
+  njulogin update --auto on|off
   njulogin version`)
 }
 
@@ -1873,18 +1874,37 @@ func newRootCommand(app appkit.App) *cobra.Command {
 		defaultHelp(c, args)
 	})
 	cli.AddCommands(root, app)
+	for _, c := range root.Commands() {
+		if c.Name() == "update" {
+			c.PreRunE = checkAutoValue
+		}
+	}
 	return root
+}
+
+// checkAutoValue rejects an update --auto value other than on or off before
+// appkit's update body runs, so it exits as invalid syntax.
+func checkAutoValue(c *cobra.Command, _ []string) error {
+	auto := c.Flags().Lookup("auto")
+	if auto == nil || !auto.Changed {
+		return nil
+	}
+	if value := auto.Value.String(); value != "on" && value != "off" {
+		return usagef("--auto takes on or off, not %q", value)
+	}
+	return nil
 }
 
 func run(args []string) error {
 	return execute(newRootCommand(application()), args)
 }
 
-// execute runs root with args. An error raised before a command starts
-// (unknown command, unexpected argument, bad flag) is invalid syntax.
+// execute runs root with args. An error raised before a command body starts
+// (unknown command, unexpected argument, bad or conflicting flags) is invalid
+// syntax.
 func execute(root *cobra.Command, args []string) error {
 	dispatched := false
-	root.PersistentPreRun = func(*cobra.Command, []string) { dispatched = true }
+	markDispatch(root, &dispatched)
 	if args == nil {
 		args = []string{}
 	}
@@ -1895,6 +1915,21 @@ func execute(root *cobra.Command, args []string) error {
 		return usageError{message: err.Error()}
 	}
 	return err
+}
+
+// markDispatch sets *dispatched when the body of c or of any command below it
+// starts. Cobra checks flag groups such as update's --check and --auto after
+// the pre-run hooks, so only the body marks the end of syntax checking.
+func markDispatch(c *cobra.Command, dispatched *bool) {
+	if run := c.RunE; run != nil {
+		c.RunE = func(cmd *cobra.Command, args []string) error {
+			*dispatched = true
+			return run(cmd, args)
+		}
+	}
+	for _, child := range c.Commands() {
+		markDispatch(child, dispatched)
+	}
 }
 
 func main() {

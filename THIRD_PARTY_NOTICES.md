@@ -17,7 +17,9 @@ The compiled `njulogin` executable uses:
   available under MIT or Apache-2.0 and used here under the MIT License, for
   release lookup, self-update, and the `update` and `version` commands. The
   exact license text is retained at
-  [`third_party_licenses/github.com_soundadam_appkit_go_LICENSE-MIT`](third_party_licenses/github.com_soundadam_appkit_go_LICENSE-MIT).
+  [`third_party_licenses/github.com_soundadam_appkit_go_LICENSE-MIT`](third_party_licenses/github.com_soundadam_appkit_go_LICENSE-MIT);
+  the module's Apache-2.0 text is retained at
+  [`third_party_licenses/github.com_soundadam_appkit_go_LICENSE-APACHE`](third_party_licenses/github.com_soundadam_appkit_go_LICENSE-APACHE).
 - [`github.com/spf13/cobra`](https://github.com/spf13/cobra), Apache-2.0
   License, for command dispatch. The exact license text is retained at
   [`third_party_licenses/github.com_spf13_cobra_LICENSE.txt`](third_party_licenses/github.com_spf13_cobra_LICENSE.txt).

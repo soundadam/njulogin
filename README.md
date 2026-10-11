@@ -47,20 +47,19 @@ permits direct-tcpip forwarding to the NJU portal and CAS destinations.
 ## Updates
 
 ```sh
-njulogin update          # install the latest release
-njulogin update --check  # only report whether a newer release exists
+njulogin update              # install the latest release
+njulogin update --check      # only report whether a newer release exists
+njulogin update --auto off   # turn the automatic check off (on turns it back on)
 ```
 
 A Cask install upgrades through `brew`; a downloaded executable replaces itself
 after checking the archive against the SHA-256 digest GitHub publishes for it.
 Source builds report version `dev` and do not update.
 
-At most once a day, a command checks GitHub for a newer release in the
-background; when one is known and standard error is a terminal, one line after
-the command's output says so. Setting `"enabled": false` in `update.json` in the
-`njulogin` directory under the user configuration directory turns the check
-off. The update contract, including how the installation is detected and which
-requests are made, is
+At most once a day, a command whose standard error is a terminal checks GitHub
+for a newer release in the background; when one is known, one line after the
+command's output says so. The update contract, including how the
+installation is detected and which requests are made, is
 [appkit's](https://github.com/soundadam/appkit#更新).
 
 The 0.1.x Homebrew Formula builds have no `update` command. Move to the Cask
@@ -103,6 +102,7 @@ njulogin quick add --name NAME
 njulogin quick delete --id ID
 njulogin remote [flags] <ssh-host> <operation>
 njulogin update [--check]
+njulogin update --auto on|off
 njulogin version
 ```
 

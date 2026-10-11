@@ -16,9 +16,9 @@
   `brew install --cask soundadam/tap/njulogin`; the source-build Formula is
   not published for new versions. A `v*` tag runs the release workflow, which
   publishes the Release and pushes the Cask to the tap.
-- Add `njulogin update [--check]` and a once-a-day
-  background update check whose notice goes to standard error only when it is
-  a terminal; release lookup and self-update follow
+- Add `njulogin update [--check]`, `njulogin update --auto on|off`, and a
+  once-a-day background update check that runs only when standard error is a
+  terminal, where its notice goes; release lookup and self-update follow
   [appkit](https://github.com/soundadam/appkit). Proxy variables apply to
   these GitHub requests only.
 

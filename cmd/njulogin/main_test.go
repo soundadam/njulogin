@@ -984,6 +984,8 @@ func TestSyntaxValidationAvoidsNetworkWork(t *testing.T) {
 	requireUsageError(t, run([]string{"version", "extra"}))
 	requireUsageError(t, run([]string{"update", "extra"}))
 	requireUsageError(t, run([]string{"update", "--unknown-flag"}))
+	requireUsageError(t, run([]string{"update", "--check", "--auto", "off"}))
+	requireUsageError(t, run([]string{"update", "--auto", "maybe"}))
 }
 
 func TestPostconditionPollingUsesBoundedInterval(t *testing.T) {

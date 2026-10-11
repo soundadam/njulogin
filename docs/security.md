@@ -67,15 +67,16 @@ whose SHA-256 differs from the digest GitHub publishes for it, or that has no
 digest, is not installed. A Cask install is upgraded by `brew`, never replaced
 in place. Development builds neither check nor update.
 
-Unless `update.json` disables it, a command started at least a day after the
-last check, or while a newer release is pending, runs the lookup in the
-background. The result is recorded in `update.json` in the `njulogin` directory
-under the user configuration directory (`NJULOGIN_CONFIG_DIR` does not move
-it). That is the directory that holds `config.json` by default, so every
-command first creates it with mode `0700` if it does not exist; an existing
-directory keeps its mode, and a permissive one is rejected when `config.json`
-is read. `update.json` sits beside `config.json` and holds only the check
-switch, the last check time, and the latest version seen.
+Unless `njulogin update --auto off` has turned it off, a command whose standard
+error is a terminal, started at least a day after the last check or while a
+newer release is pending, runs the lookup in the background. The result is
+recorded in `update.json` in the `njulogin` directory under the user
+configuration directory (`NJULOGIN_CONFIG_DIR` does not move it). That is
+the directory that holds `config.json` by default, so every command first
+creates it with mode `0700` if it does not exist; an existing directory keeps
+its mode, and a permissive one is rejected when `config.json` is read.
+`update.json` sits beside `config.json` and holds only the check switch, the
+last check time, and the latest version seen.
 
 The release workflow and GitHub Releases are trusted to publish what the tag
 builds; tags and Releases are immutable once published.
