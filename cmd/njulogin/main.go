@@ -18,12 +18,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime/debug"
 	"strings"
 	"time"
 	"unicode"
 
 	qrcode "github.com/skip2/go-qrcode"
+	appkit "github.com/soundadam/appkit/go"
+	"github.com/soundadam/appkit/go/cli"
+	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
@@ -992,15 +994,46 @@ func resolveExplicitSecret(command string, ask, stdin bool) (string, error) {
 	}
 }
 
-func configFilePath() (string, error) {
-	if dir := strings.TrimSpace(os.Getenv("NJULOGIN_CONFIG_DIR")); dir != "" {
-		return filepath.Join(dir, "config.json"), nil
-	}
+// defaultConfigDir is <user configuration directory>/njulogin. It holds
+// config.json unless NJULOGIN_CONFIG_DIR is set, and it is always where appkit
+// keeps update.json.
+func defaultConfigDir() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "njulogin", "config.json"), nil
+	return filepath.Join(dir, "njulogin"), nil
+}
+
+func configFilePath() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("NJULOGIN_CONFIG_DIR")); dir != "" {
+		return filepath.Join(dir, "config.json"), nil
+	}
+	dir, err := defaultConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.json"), nil
+}
+
+// createDefaultConfigDir creates the default configuration directory with
+// mode 0700 if it does not exist yet. appkit writes update.json there and
+// would otherwise create the directory 0755, the directory config.json
+// requires to be 0700. An existing directory is left as it is: a permissive
+// one is reported when config.json is read, not silently tightened.
+// Failures are ignored, as appkit ignores a state file it cannot write.
+func createDefaultConfigDir() {
+	dir, err := defaultConfigDir()
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return
+	}
+	_ = os.Chmod(dir, 0o700)
 }
 
 func loadCredentialConfig() (*credentialConfig, error) {
@@ -1364,31 +1397,6 @@ func outputField(value, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func effectiveVersion() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return resolveVersion(version, nil)
-	}
-	return resolveVersion(version, info)
-}
-
-func resolveVersion(linked string, info *debug.BuildInfo) string {
-	linked = strings.TrimSpace(linked)
-	if linked != "" && linked != "dev" {
-		return linked
-	}
-	if info != nil {
-		moduleVersion := strings.TrimSpace(info.Main.Version)
-		if moduleVersion != "" && moduleVersion != "(devel)" {
-			return moduleVersion
-		}
-	}
-	if linked == "" {
-		return "dev"
-	}
-	return linked
 }
 
 func envDefault(name, fallback string) string {
@@ -1798,66 +1806,138 @@ func usage() {
   njulogin quick add --name NAME
   njulogin quick delete --id ID
   njulogin remote [flags] <ssh-host> <operation>
+  njulogin update [--check]
+  njulogin update --auto on|off
   njulogin version`)
 }
 
-func run(args []string) error {
-	if len(args) == 0 {
-		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
-			usage()
-			return usagef("interactive mode requires a terminal")
-		}
-		return interactiveCommand()
+// application is this program's identity for appkit: release lookup, asset
+// names, the Homebrew Cask, and the update and version commands.
+func application() appkit.App {
+	return appkit.App{Name: "njulogin", Version: version, Repo: "soundadam/njulogin"}
+}
+
+// newRootCommand dispatches by command name only. Each njulogin command parses
+// its own flags, so the flag syntax and exit statuses stay those of
+// docs/cli-contract.md; appkit adds update, version, and --version.
+func newRootCommand(app appkit.App) *cobra.Command {
+	root := &cobra.Command{
+		Use:               "njulogin",
+		Args:              cobra.NoArgs,
+		SilenceErrors:     true,
+		SilenceUsage:      true,
+		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
+		RunE: func(*cobra.Command, []string) error {
+			if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+				usage()
+				return usagef("interactive mode requires a terminal")
+			}
+			return interactiveCommand()
+		},
 	}
-	command := args[0]
-	rest := args[1:]
-	switch command {
-	case "setup":
-		return setupCommand(rest)
-	case "status":
-		if err := requireNoArgs("status", rest); err != nil {
-			return err
+	command := func(name string, run func(args []string) error) *cobra.Command {
+		return &cobra.Command{
+			Use:                name,
+			DisableFlagParsing: true,
+			RunE:               func(_ *cobra.Command, args []string) error { return run(args) },
 		}
-		return statusCommand()
-	case "info":
-		if err := requireNoArgs("info", rest); err != nil {
-			return err
-		}
-		return infoCommand()
-	case "login":
-		return loginCommand(rest)
-	case "qr":
-		return qrCommand(rest)
-	case "logout":
-		if err := requireNoArgs("logout", rest); err != nil {
-			return err
-		}
-		return logoutCommand()
-	case "kick":
-		return kickCommand(rest)
-	case "quick":
-		return quickCommand(rest)
-	case "remote":
-		return remoteCommand(rest)
-	case "version", "--version":
-		if err := requireNoArgs("version", rest); err != nil {
-			return err
-		}
-		fmt.Printf("njulogin %s\n", effectiveVersion())
-		return nil
-	case "-h", "--help", "help":
-		if err := requireNoArgs("help", rest); err != nil {
-			return err
-		}
+	}
+	noArgs := func(name string, run func() error) *cobra.Command {
+		return command(name, func(args []string) error {
+			if err := requireNoArgs(name, args); err != nil {
+				return err
+			}
+			return run()
+		})
+	}
+	root.AddCommand(
+		command("setup", setupCommand),
+		noArgs("status", statusCommand),
+		noArgs("info", infoCommand),
+		command("login", loginCommand),
+		command("qr", qrCommand),
+		noArgs("logout", logoutCommand),
+		command("kick", kickCommand),
+		command("quick", quickCommand),
+		command("remote", remoteCommand),
+	)
+	root.SetHelpCommand(noArgs("help", func() error {
 		usage()
 		return nil
-	default:
-		return usagef("unknown command: %s", command)
+	}))
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if c == root {
+			usage()
+			return
+		}
+		defaultHelp(c, args)
+	})
+	cli.AddCommands(root, app)
+	for _, c := range root.Commands() {
+		if c.Name() == "update" {
+			c.PreRunE = checkAutoValue
+		}
+	}
+	return root
+}
+
+// checkAutoValue rejects an update --auto value other than on or off before
+// appkit's update body runs, so it exits as invalid syntax.
+func checkAutoValue(c *cobra.Command, _ []string) error {
+	auto := c.Flags().Lookup("auto")
+	if auto == nil || !auto.Changed {
+		return nil
+	}
+	if value := auto.Value.String(); value != "on" && value != "off" {
+		return usagef("--auto takes on or off, not %q", value)
+	}
+	return nil
+}
+
+func run(args []string) error {
+	return execute(newRootCommand(application()), args)
+}
+
+// execute runs root with args. An error raised before a command body starts
+// (unknown command, unexpected argument, bad or conflicting flags) is invalid
+// syntax.
+func execute(root *cobra.Command, args []string) error {
+	dispatched := false
+	markDispatch(root, &dispatched)
+	if args == nil {
+		args = []string{}
+	}
+	root.SetArgs(args)
+	err := root.Execute()
+	var syntax usageError
+	if err != nil && !dispatched && !errors.As(err, &syntax) {
+		return usageError{message: err.Error()}
+	}
+	return err
+}
+
+// markDispatch sets *dispatched when the body of c or of any command below it
+// starts. Cobra checks flag groups such as update's --check and --auto after
+// the pre-run hooks, so only the body marks the end of syntax checking.
+func markDispatch(c *cobra.Command, dispatched *bool) {
+	if run := c.RunE; run != nil {
+		c.RunE = func(cmd *cobra.Command, args []string) error {
+			*dispatched = true
+			return run(cmd, args)
+		}
+	}
+	for _, child := range c.Commands() {
+		markDispatch(child, dispatched)
 	}
 }
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	createDefaultConfigDir()
+	notice := cli.StartNotice(application())
+	err := run(os.Args[1:])
+	notice.Print(os.Stderr)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(exitCodeForError(err))
 	}

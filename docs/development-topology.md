@@ -34,13 +34,15 @@ service-isolated gate. It does not claim that Linux is a first-class installed
 product platform. The workflow asserts that `go env GOVERSION` equals the
 `go.mod` toolchain directive.
 
-Homebrew Formula CI runs on hosted macOS runners. It validates the immutable
-source archive, Formula build, installed command, and read-only Formula tests.
+The release workflow runs on a `v*` tag; [release readiness](release-readiness.md)
+describes what it publishes. The tap's own CI tests `Casks/njulogin.rb` as the
+[homebrew-tap README](https://github.com/soundadam/homebrew-tap) describes.
 
 ## macOS acceptance
 
-Release acceptance runs on the maintainer's macOS machine against a
-Homebrew-installed candidate built from a reviewed commit. It MUST NOT use
+Release acceptance runs on the maintainer's macOS machine against a candidate
+installed through the Homebrew Cask from archives that `scripts/package.sh`
+built from a reviewed commit. It MUST NOT use
 `go run`, `make build`, or `./bin/njulogin` from a source checkout as release
 acceptance evidence.
 
@@ -54,7 +56,7 @@ A macOS acceptance record identifies:
 
 ```text
 Source commit:
-Formula revision or temporary tap:
+Candidate Cask and archive SHA-256:
 Installed version:
 macOS version and architecture:
 Homebrew install/test result:

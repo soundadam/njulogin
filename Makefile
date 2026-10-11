@@ -5,8 +5,8 @@ COVERAGE_PROFILE := .build/coverage.out
 
 .PHONY: build check release-check fmt fmt-check module-check test test-race \
 	coverage-check vet static-check shell-check compatibility-check \
-	python-check documentation-check workflow-check repository-check license-check formula-check smoke-check \
-	cross-build-check vuln-check clean
+	python-check documentation-check workflow-check repository-check license-check cask-check smoke-check \
+	package-check vuln-check clean
 
 build:
 	mkdir -p bin
@@ -38,13 +38,15 @@ static-check:
 shell-check:
 	bash -n tools/NJUlogin/njulogin-portal.sh
 	bash -n tools/NJUlogin/njulogin-remote.sh
-	bash -n scripts/render-formula.sh
+	bash -n scripts/package.sh
+	bash -n scripts/render-cask.sh
 	bash -n scripts/check-repository-invariants.sh
 	bash -n scripts/test-compatibility-tools.sh
-	bash -n scripts/test-formula-template.sh
-	shellcheck scripts/render-formula.sh \
+	bash -n scripts/test-cask-template.sh
+	bash -n scripts/test-package.sh
+	shellcheck scripts/package.sh scripts/render-cask.sh \
 		scripts/check-repository-invariants.sh scripts/test-compatibility-tools.sh \
-		scripts/test-formula-template.sh \
+		scripts/test-cask-template.sh scripts/test-package.sh \
 		tools/NJUlogin/njulogin-portal.sh tools/NJUlogin/njulogin-remote.sh
 
 compatibility-check:
@@ -58,7 +60,7 @@ documentation-check:
 	python3 scripts/check-documentation.py
 
 workflow-check:
-	actionlint .github/workflows/ci.yml
+	actionlint .github/workflows/ci.yml .github/workflows/release.yml
 
 module-check:
 	go mod verify
@@ -70,15 +72,20 @@ repository-check:
 license-check:
 	python3 scripts/check-third-party-licenses.py
 
-formula-check:
-	bash scripts/test-formula-template.sh
+cask-check:
+	bash scripts/test-cask-template.sh
 
+# A semver build checks for updates only when standard error is a terminal,
+# so every run sends standard error elsewhere to stay off the network. The
+# temporary HOME and XDG_CONFIG_HOME keep the real configuration untouched.
 smoke-check: VERSION=0.0.0-check
 smoke-check: build
 	@set -eu; \
-	test "$$(./bin/njulogin version)" = "njulogin 0.0.0-check"; \
-	./bin/njulogin help 2>&1 | grep -q '^Usage:'; \
 	tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
+	export HOME="$$tmp/home" XDG_CONFIG_HOME="$$tmp/config"; \
+	test "$$(./bin/njulogin version 2>"$$tmp/version-err")" = "njulogin 0.0.0-check"; \
+	test "$$(./bin/njulogin --version 2>"$$tmp/version-err")" = "njulogin 0.0.0-check"; \
+	./bin/njulogin help 2>&1 | grep -q '^Usage:'; \
 	set +e; ./bin/njulogin </dev/null >"$$tmp/stdout" 2>"$$tmp/stderr"; status=$$?; set -e; \
 	test "$$status" -eq 2; \
 	grep -q '^Usage:' "$$tmp/stderr"; \
@@ -88,19 +95,14 @@ smoke-check: build
 vuln-check:
 	govulncheck ./...
 
-cross-build-check:
-	mkdir -p .build/cross
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o .build/cross/njulogin-darwin-amd64 ./cmd/njulogin
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -o .build/cross/njulogin-darwin-arm64 ./cmd/njulogin
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o .build/cross/njulogin-linux-amd64 ./cmd/njulogin
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o .build/cross/njulogin-linux-arm64 ./cmd/njulogin
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o .build/cross/njulogin-windows-amd64.exe ./cmd/njulogin
+package-check:
+	bash scripts/test-package.sh
 
 check: fmt-check module-check vet test test-race coverage-check static-check \
 	shell-check compatibility-check python-check workflow-check \
-	documentation-check repository-check license-check formula-check smoke-check
+	documentation-check repository-check license-check cask-check smoke-check
 
-release-check: check cross-build-check vuln-check
+release-check: check package-check vuln-check
 
 clean:
 	$(RM) -r bin .build

@@ -7,14 +7,17 @@ governed by [`SPEC.md`](../SPEC.md) and
 ## Components
 
 - `cmd/njulogin/main.go` owns CLI parsing, local credentials, portal operations,
-  CAS QR state, output, and postcondition verification.
+  CAS QR state, output, and postcondition verification. A cobra root command
+  dispatches by name; each command parses its own flags.
+- [appkit](https://github.com/soundadam/appkit) supplies `update`, `version`,
+  `--version`, and the update notice.
 - `cmd/njulogin/ssh_tunnel.go` adapts OpenSSH `-W` direct-tcpip stdio channels
   into local `net.Conn` values used by Go's HTTP transport.
 - `cmd/njulogin/subprocess_unix.go` and `subprocess_other.go` provide bounded
   subprocess cancellation, including process-group termination on Unix-like
   systems.
 - `tools/NJUlogin/` contains source-level compatibility and diagnostic wrappers.
-  Homebrew does not install them.
+  Release archives do not include them.
 
 The Go binary owns the product interface. No Python source or remote helper is
 part of the installed product path.
@@ -26,7 +29,7 @@ through a pull request. Product source CI runs the same service-isolated gate
 on Linux.
 
 The maintainer's macOS machine is also the installed-product acceptance
-environment: it receives a candidate through Homebrew and exercises the
+environment: it receives a candidate through the Homebrew Cask and exercises the
 installed binary. The normative workflow is defined in
 [`docs/development-topology.md`](development-topology.md).
 

@@ -10,8 +10,17 @@
   `net/url`, `crypto/tls`, and `encoding/asn1`.
 - Accept source changes from any maintainer clone through pull requests to
   `main`; release acceptance still uses a Homebrew-installed candidate.
-- Publish the source repository. The Homebrew Formula builds from the public
-  tag archive and no longer needs a GitHub token.
+- Publish the source repository.
+- Ship prebuilt `njulogin` archives for macOS and Linux on x86_64 and aarch64
+  with each GitHub Release, and the Homebrew Cask
+  `brew install --cask soundadam/tap/njulogin`; the source-build Formula is
+  not published for new versions. A `v*` tag runs the release workflow, which
+  publishes the Release and pushes the Cask to the tap.
+- Add `njulogin update [--check]`, `njulogin update --auto on|off`, and a
+  once-a-day background update check that runs only when standard error is a
+  terminal, where its notice goes; release lookup and self-update follow
+  [appkit](https://github.com/soundadam/appkit). Proxy variables apply to
+  these GitHub requests only.
 
 ## 0.1.1 - 2026-07-27
 

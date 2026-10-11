@@ -62,8 +62,8 @@ Requirements:
 
 ### Release-only change
 
-Examples include version, changelog, tag, archive checksum, Formula, and release
-notes. Release work MUST NOT include opportunistic product behavior changes.
+Examples include version, changelog, tag, release workflow, Cask template, and
+release notes. Release work MUST NOT include opportunistic product behavior changes.
 
 ## Required work sequence
 

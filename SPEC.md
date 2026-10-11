@@ -46,17 +46,21 @@ local and SSH-routed operations for:
 It is not a daemon, control plane, network manager, credential synchronizer, or
 remote software deployment system.
 
-The repository, Go module suffix, Formula token, and executable are named
-`njulogin`; `NJUlogin` is only the human-facing product name.
+The repository, Go module suffix, Cask token, release archive prefix, and
+executable are named `njulogin`; `NJUlogin` is only the human-facing product
+name.
 
 ## Supported surface
 
 The first public release supports:
 
-- the compiled `njulogin` executable on macOS 13 or newer;
+- the compiled `njulogin` executable on macOS 13 or newer and on Linux, for
+  x86_64 and aarch64;
+- the release archives on GitHub Releases and the Homebrew Cask in
+  `soundadam/homebrew-tap`, named and installed as the
+  [appkit contract](https://github.com/soundadam/appkit) defines;
 - source builds and local credential storage on maintained macOS and Linux
   environments using the Go toolchain declared by `go.mod`;
-- the source-build Homebrew Formula in `soundadam/homebrew-tap`;
 - SSH destinations configured and owned by the operator;
 - remote operations through an OpenSSH-compatible direct-tcpip stdio channel
   (`ssh -W`) permitted by the SSH server.
@@ -78,8 +82,12 @@ Every change MUST preserve these invariants unless the contract is changed
 explicitly first:
 
 1. **Explicit operation.** No login, logout, device mutation, SSH connection,
-   credential write, or persistent state change occurs without an explicit
-   command or interactive selection.
+   credential write, self-update, or persistent state change occurs without an
+   explicit command or interactive selection. The one exception is the
+   automatic update check: at most once a day it reads the latest release from
+   the GitHub API and records the result in `update.json`, creating its
+   directory if it is missing (see
+   [`docs/security.md`](docs/security.md#updates)).
 2. **Truthful success.** Exit status zero means the documented postcondition was
    satisfied. Portal rejection, malformed or oversized responses, transport
    failure, and unverified mutation are failures.
@@ -114,8 +122,10 @@ explicitly first:
 11. **Service-isolated automation.** Automated tests and CI never contact the
     real NJU portal, CAS service, an operator credential file, or a real SSH
     host.
-12. **Source-first distribution.** The first release is an immutable source tag
-    and Homebrew source build, not an unsigned or unnotarized prebuilt binary.
+12. **Immutable release artifacts.** A release is an immutable tag and an
+    immutable GitHub Release whose archives are built by the release workflow
+    from that tag. macOS archives are not notarized; the Cask and the
+    self-update install them without the quarantine attribute.
 13. **Separated iteration and acceptance.** Source changes reach `main` only
     through pull requests. Release acceptance validates a Homebrew-installed
     candidate, never a binary built from a source checkout.
@@ -145,6 +155,7 @@ njulogin remote <ssh-host> kick
 njulogin remote <ssh-host> quick list
 njulogin remote <ssh-host> quick add
 njulogin remote <ssh-host> quick delete
+njulogin update
 njulogin version
 njulogin help
 ```
@@ -166,7 +177,8 @@ The repository MUST NOT expand into:
 - credential synchronization, account recovery, password rotation, OS keyring,
   Secret Service, KWallet, or other OS-keyring integration;
 - encryption-key management for the local credential file;
-- analytics, telemetry, portal-response persistence, or cloud services;
+- analytics, telemetry, portal-response persistence, or cloud services other
+  than reading GitHub Releases for updates;
 - a general-purpose NJU account or self-service client.
 
 Requests in these areas require a separate product or explicit contract change,

@@ -1,0 +1,122 @@
+name: Release
+
+# A v* tag builds the archives that scripts/package.sh ships, publishes the
+# GitHub Release with them, and, unless the tag contains "-" (a prerelease),
+# pushes the filled Cask to soundadam/homebrew-tap. The contract for names,
+# Cask, and prereleases is https://github.com/soundadam/appkit#发布产物.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Check the tag, toolchain, and changelog
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::tag $GITHUB_REF_NAME is not v<semver>"
+            exit 1
+          }
+          test "$(go env GOVERSION)" = "$(awk '$1 == "toolchain" { print $2 }' go.mod)"
+          # Release notes are the CHANGELOG section headed "## <version>".
+          awk -v heading="## $version" '
+            index($0, "## ") == 1 { if (found) exit; found = ($0 == heading || index($0, heading " ") == 1); next }
+            found { print }
+          ' CHANGELOG.md >"$RUNNER_TEMP/notes.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" || {
+            echo "::error::CHANGELOG.md has no section for $version"
+            exit 1
+          }
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+
+      - name: Build the archives
+        run: scripts/package.sh "$VERSION" dist
+
+      - name: Check the version built into the archive
+        run: |
+          set -euo pipefail
+          tar -xzf "dist/njulogin-$VERSION-linux-x86_64.tar.gz" -C "$RUNNER_TEMP"
+          # Standard error is not a terminal here, so the run makes no update check.
+          test "$("$RUNNER_TEMP/njulogin-$VERSION-linux-x86_64/njulogin" version)" = "njulogin $VERSION"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prerelease=()
+          [[ "$VERSION" != *-* ]] || prerelease=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/njulogin-*.tar.gz \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "NJUlogin $VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            "${prerelease[@]}"
+
+  # HOMEBREW_TAP_GITHUB_TOKEN: a fine-grained token with Contents read and
+  # write on soundadam/homebrew-tap only; the job's own token cannot push there.
+  # The checksums come from the published assets, so this job can be re-run
+  # on its own after the Release exists.
+  homebrew:
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Render the Cask from the published archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/published" --pattern 'njulogin-*.tar.gz'
+          scripts/render-cask.sh "$version" "$RUNNER_TEMP/published" "$RUNNER_TEMP/njulogin.rb"
+
+      - name: Push the Cask to soundadam/homebrew-tap
+        env:
+          TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$TOKEN" || { echo "::error::HOMEBREW_TAP_GITHUB_TOKEN is not set"; exit 1; }
+          git clone --depth 1 "https://x-access-token:$TOKEN@github.com/soundadam/homebrew-tap.git" "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          mkdir -p Casks
+          cp "$RUNNER_TEMP/njulogin.rb" Casks/njulogin.rb
+          git add Casks/njulogin.rb
+          git diff --cached --quiet && exit 0
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "njulogin ${GITHUB_REF_NAME#v}"
+          git push origin HEAD:main
