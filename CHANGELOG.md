@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-10-11
+
+Contract version 1 ([SPEC.md](SPEC.md)).
 
 - Select the patched Go 1.27.2 toolchain for source and CI builds. The Go 1.25
   line has no release that fixes GO-2026-5026, GO-2026-5972, GO-2026-6090,
