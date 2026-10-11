@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -508,22 +507,6 @@ func TestVersionIsDefined(t *testing.T) {
 	}
 }
 
-func TestResolveVersionPrefersLinkerThenModuleVersion(t *testing.T) {
-	info := &debug.BuildInfo{Main: debug.Module{Version: "v0.1.0"}}
-	if got := resolveVersion("0.2.0", info); got != "0.2.0" {
-		t.Fatalf("linked version = %q", got)
-	}
-	if got := resolveVersion("dev", info); got != "v0.1.0" {
-		t.Fatalf("module version = %q", got)
-	}
-	if got := resolveVersion("dev", &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}); got != "dev" {
-		t.Fatalf("development version = %q", got)
-	}
-	if got := resolveVersion("", nil); got != "dev" {
-		t.Fatalf("empty version fallback = %q", got)
-	}
-}
-
 func TestCredentialSourcesAreMutuallyExclusive(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -935,6 +918,11 @@ func TestSyntaxValidationAvoidsNetworkWork(t *testing.T) {
 	requireUsageError(t, qrCommand([]string{"--timeout", "0s"}))
 	requireUsageError(t, run([]string{"status", "extra"}))
 	requireUsageError(t, run([]string{"unknown-command"}))
+	requireUsageError(t, run([]string{"kick", "--id", "synthetic", "--index", "1"}))
+	requireUsageError(t, run([]string{"help", "extra"}))
+	requireUsageError(t, run([]string{"version", "extra"}))
+	requireUsageError(t, run([]string{"update", "extra"}))
+	requireUsageError(t, run([]string{"update", "--unknown-flag"}))
 }
 
 func TestPostconditionPollingUsesBoundedInterval(t *testing.T) {
@@ -994,8 +982,12 @@ func TestLocalStatusInfoAndRunDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run version: %v", err)
 	}
-	if !strings.Contains(output, "njulogin ") {
+	if output != "njulogin "+version+"\n" {
 		t.Fatalf("version output: %q", output)
+	}
+	output, err = captureStdout(t, func() error { return run([]string{"--version"}) })
+	if err != nil || output != "njulogin "+version+"\n" {
+		t.Fatalf("run --version: %q, %v", output, err)
 	}
 
 	if err := run([]string{"help"}); err != nil {

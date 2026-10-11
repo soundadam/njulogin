@@ -9,19 +9,66 @@ This repository was extracted from the former `adam-network-tools` workspace.
 It is independent of SoundVPN, NJUConnect, EasyConnect, proxy selection, and
 server desired state.
 
-## Build
+## Install
 
-Requirements:
+On macOS and Linux (x86_64 and aarch64), install the Homebrew Cask:
 
-- the Go toolchain selected by the `toolchain` directive in `go.mod`;
-- an OpenSSH-compatible client for `remote` operations;
-- an SSH server that permits direct-tcpip forwarding to the NJU portal and CAS
-  destinations.
+```sh
+brew install --cask soundadam/tap/njulogin
+```
+
+Or download `njulogin-<version>-<os>-<arch>.tar.gz` from
+[Releases](https://github.com/soundadam/njulogin/releases) and put the
+`njulogin` executable from it on `PATH`. The archive also carries the license
+material. There are no Windows builds: the credential file protection below
+relies on Unix file modes.
+
+macOS builds are not notarized. A Cask install and a self-update are not
+blocked by Gatekeeper; an archive downloaded with a browser is quarantined, and
+macOS refuses the first run. Allow it under System Settings → Privacy &
+Security, or remove the attribute:
+
+```sh
+xattr -d com.apple.quarantine <path to the extracted njulogin>
+```
+
+Build from source with the Go toolchain selected by the `toolchain` directive
+in `go.mod`:
 
 ```sh
 make check
 make build
 ./bin/njulogin version
+```
+
+Remote operations need an OpenSSH-compatible client and an SSH server that
+permits direct-tcpip forwarding to the NJU portal and CAS destinations.
+
+## Updates
+
+```sh
+njulogin update          # install the latest release
+njulogin update --check  # only report whether a newer release exists
+```
+
+A Cask install upgrades through `brew`; a downloaded executable replaces itself
+after checking the archive against the SHA-256 digest GitHub publishes for it.
+Source builds report version `dev` and do not update.
+
+At most once a day, a command checks GitHub for a newer release in the
+background; when one is known and standard error is a terminal, one line after
+the command's output says so. Setting `"enabled": false` in `update.json` in the
+`njulogin` directory under the user configuration directory turns the check
+off. The update contract, including how the installation is detected and which
+requests are made, is
+[appkit's](https://github.com/soundadam/appkit#更新).
+
+The 0.1.x Homebrew Formula builds have no `update` command. Move to the Cask
+with:
+
+```sh
+brew uninstall njulogin
+brew install --cask soundadam/tap/njulogin
 ```
 
 ## First use
@@ -55,6 +102,7 @@ njulogin quick list
 njulogin quick add --name NAME
 njulogin quick delete --id ID
 njulogin remote [flags] <ssh-host> <operation>
+njulogin update [--check]
 njulogin version
 ```
 
@@ -116,18 +164,17 @@ Supported remote flags before `<ssh-host>` are:
 `--insecure` disables TLS verification in the local process for that invocation
 and emits a warning.
 
-## Homebrew
+## Releases
 
-```sh
-brew install soundadam/tap/njulogin
-```
-
-The Formula builds from the checksum-pinned archive of a release tag. It is
-rendered from `packaging/Formula/njulogin.rb.in`:
-
-```sh
-scripts/render-formula.sh VERSION URL SHA256 OUTPUT
-```
+Artifact names, the Cask, and prerelease handling follow
+[appkit](https://github.com/soundadam/appkit#发布产物). Pushing a `v<version>`
+tag runs the [release workflow](.github/workflows/release.yml): it takes the
+release notes from the `## <version>` section of [`CHANGELOG.md`](CHANGELOG.md),
+builds the archives with `scripts/package.sh`, publishes the GitHub Release,
+and pushes [`packaging/homebrew/njulogin.rb`](packaging/homebrew/njulogin.rb),
+filled in by `scripts/render-cask.sh`, to `soundadam/homebrew-tap`. Tags
+containing `-` publish a prerelease and leave the tap alone. The gates before a
+tag are in [release readiness](docs/release-readiness.md).
 
 ## Documentation
 

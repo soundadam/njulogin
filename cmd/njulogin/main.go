@@ -18,12 +18,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime/debug"
 	"strings"
 	"time"
 	"unicode"
 
 	qrcode "github.com/skip2/go-qrcode"
+	appkit "github.com/soundadam/appkit/go"
+	"github.com/soundadam/appkit/go/cli"
+	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
@@ -1366,31 +1368,6 @@ func outputField(value, fallback string) string {
 	return value
 }
 
-func effectiveVersion() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return resolveVersion(version, nil)
-	}
-	return resolveVersion(version, info)
-}
-
-func resolveVersion(linked string, info *debug.BuildInfo) string {
-	linked = strings.TrimSpace(linked)
-	if linked != "" && linked != "dev" {
-		return linked
-	}
-	if info != nil {
-		moduleVersion := strings.TrimSpace(info.Main.Version)
-		if moduleVersion != "" && moduleVersion != "(devel)" {
-			return moduleVersion
-		}
-	}
-	if linked == "" {
-		return "dev"
-	}
-	return linked
-}
-
 func envDefault(name, fallback string) string {
 	if value := os.Getenv(name); value != "" {
 		return value
@@ -1798,66 +1775,102 @@ func usage() {
   njulogin quick add --name NAME
   njulogin quick delete --id ID
   njulogin remote [flags] <ssh-host> <operation>
+  njulogin update [--check]
   njulogin version`)
 }
 
-func run(args []string) error {
-	if len(args) == 0 {
-		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
-			usage()
-			return usagef("interactive mode requires a terminal")
-		}
-		return interactiveCommand()
+// application is this program's identity for appkit: release lookup, asset
+// names, the Homebrew Cask, and the update and version commands.
+func application() appkit.App {
+	return appkit.App{Name: "njulogin", Version: version, Repo: "soundadam/njulogin"}
+}
+
+// newRootCommand dispatches by command name only. Each njulogin command parses
+// its own flags, so the flag syntax and exit statuses stay those of
+// docs/cli-contract.md; appkit adds update, version, and --version.
+func newRootCommand(app appkit.App) *cobra.Command {
+	root := &cobra.Command{
+		Use:               "njulogin",
+		Args:              cobra.NoArgs,
+		SilenceErrors:     true,
+		SilenceUsage:      true,
+		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
+		RunE: func(*cobra.Command, []string) error {
+			if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+				usage()
+				return usagef("interactive mode requires a terminal")
+			}
+			return interactiveCommand()
+		},
 	}
-	command := args[0]
-	rest := args[1:]
-	switch command {
-	case "setup":
-		return setupCommand(rest)
-	case "status":
-		if err := requireNoArgs("status", rest); err != nil {
-			return err
+	command := func(name string, run func(args []string) error) *cobra.Command {
+		return &cobra.Command{
+			Use:                name,
+			DisableFlagParsing: true,
+			RunE:               func(_ *cobra.Command, args []string) error { return run(args) },
 		}
-		return statusCommand()
-	case "info":
-		if err := requireNoArgs("info", rest); err != nil {
-			return err
-		}
-		return infoCommand()
-	case "login":
-		return loginCommand(rest)
-	case "qr":
-		return qrCommand(rest)
-	case "logout":
-		if err := requireNoArgs("logout", rest); err != nil {
-			return err
-		}
-		return logoutCommand()
-	case "kick":
-		return kickCommand(rest)
-	case "quick":
-		return quickCommand(rest)
-	case "remote":
-		return remoteCommand(rest)
-	case "version", "--version":
-		if err := requireNoArgs("version", rest); err != nil {
-			return err
-		}
-		fmt.Printf("njulogin %s\n", effectiveVersion())
-		return nil
-	case "-h", "--help", "help":
-		if err := requireNoArgs("help", rest); err != nil {
-			return err
-		}
+	}
+	noArgs := func(name string, run func() error) *cobra.Command {
+		return command(name, func(args []string) error {
+			if err := requireNoArgs(name, args); err != nil {
+				return err
+			}
+			return run()
+		})
+	}
+	root.AddCommand(
+		command("setup", setupCommand),
+		noArgs("status", statusCommand),
+		noArgs("info", infoCommand),
+		command("login", loginCommand),
+		command("qr", qrCommand),
+		noArgs("logout", logoutCommand),
+		command("kick", kickCommand),
+		command("quick", quickCommand),
+		command("remote", remoteCommand),
+	)
+	root.SetHelpCommand(noArgs("help", func() error {
 		usage()
 		return nil
-	default:
-		return usagef("unknown command: %s", command)
+	}))
+	defaultHelp := root.HelpFunc()
+	root.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if c == root {
+			usage()
+			return
+		}
+		defaultHelp(c, args)
+	})
+	cli.AddCommands(root, app)
+	return root
+}
+
+func run(args []string) error {
+	return execute(newRootCommand(application()), args)
+}
+
+// execute runs root with args. An error raised before a command starts
+// (unknown command, unexpected argument, bad flag) is invalid syntax.
+func execute(root *cobra.Command, args []string) error {
+	dispatched := false
+	root.PersistentPreRun = func(*cobra.Command, []string) { dispatched = true }
+	if args == nil {
+		args = []string{}
 	}
+	root.SetArgs(args)
+	err := root.Execute()
+	var syntax usageError
+	if err != nil && !dispatched && !errors.As(err, &syntax) {
+		return usageError{message: err.Error()}
+	}
+	return err
 }
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	notice := cli.StartNotice(application())
+	err := run(os.Args[1:])
+	notice.Print(os.Stderr)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(exitCodeForError(err))
 	}
