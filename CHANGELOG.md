@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Select the patched Go 1.27.3 toolchain. Go 1.27.2 is affected by
+  GO-2026-6809 (compromised intermediate certificates trusted by
+  `crypto/x509`), which `govulncheck` reports as reachable through the TLS
+  verification of portal, CAS, and update requests.
+
 ## 0.2.0 - 2026-10-11
 
 Contract version 1 ([SPEC.md](SPEC.md)).
