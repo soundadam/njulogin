@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 - 2026-10-25
 
 - Select the patched Go 1.27.3 toolchain. Go 1.27.2 is affected by
   GO-2026-6809 (compromised intermediate certificates trusted by
