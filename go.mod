@@ -2,7 +2,7 @@ module github.com/soundadam/njulogin
 
 go 1.25.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0
