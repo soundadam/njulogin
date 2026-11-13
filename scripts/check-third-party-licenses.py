@@ -1,81 +1,87 @@
 #!/usr/bin/env python3
-"""Require a retained license for every module linked into a release binary.
+"""Check that the release archives carry a license for every linked module.
 
-The module list comes from `go list -deps` for each release platform, and each
-retained file must match the license shipped inside the module verified by
-go.sum. `--write` copies missing or changed license files; notices stay
-hand-written so a reviewer reads every new license.
+The modules are those `go list -deps` links into ./cmd/njulogin for each
+target that scripts/package.sh ships. Each needs at least one file named
+third_party_licenses/<module path with / as _>_<license file name>, referenced
+from THIRD_PARTY_NOTICES.md. Every LICENSE*, COPYING*, or NOTICE* file at the
+module root in the module cache must be copied there byte for byte, and no
+license file may remain for a module that is no longer linked.
 """
 from __future__ import annotations
 
-import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LICENSE_DIR = ROOT / "third_party_licenses"
-# Distributed platforms only; the Windows cross-build is a compile check and
-# ships nothing.
-PLATFORMS = [("darwin", "arm64"), ("darwin", "amd64"), ("linux", "amd64"), ("linux", "arm64")]
-LICENSE_NAMES = ["LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING"]
+LICENSES = ROOT / "third_party_licenses"
+LICENSE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "NOTICE")
 
 
-def linked_modules() -> dict[str, str]:
-    modules: dict[str, str] = {}
-    for goos, goarch in PLATFORMS:
+def go(*args: str, env: dict[str, str] | None = None) -> str:
+    return subprocess.run(
+        ["go", *args], cwd=ROOT, env=env, check=True, capture_output=True, text=True
+    ).stdout
+
+
+def linked_modules() -> dict[str, Path]:
+    targets = subprocess.run(
+        ["bash", str(ROOT / "scripts/package.sh"), "--targets"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    modules: dict[str, Path] = {}
+    for target in targets:
+        goos, goarch = target.split("/")
         env = {**os.environ, "GOOS": goos, "GOARCH": goarch, "CGO_ENABLED": "0"}
-        output = subprocess.run(
-            ["go", "list", "-deps", "-f", "{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}}{{end}}{{end}}", "./cmd/njulogin"],
-            cwd=ROOT, env=env, check=True, text=True, stdout=subprocess.PIPE,
-        ).stdout
+        output = go(
+            "list",
+            "-deps",
+            "-f",
+            "{{with .Module}}{{if not .Main}}{{.Path}}\t{{.Dir}}{{end}}{{end}}",
+            "./cmd/njulogin",
+            env=env,
+        )
         for line in output.splitlines():
-            if line.strip():
-                path, version = line.split()
-                modules[path] = version
+            if line:
+                path, directory = line.split("\t")
+                modules[path] = Path(directory)
     return modules
 
 
-def module_license(path: str, version: str) -> Path:
-    info = json.loads(subprocess.run(
-        ["go", "mod", "download", "-json", f"{path}@{version}"],
-        cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE,
-    ).stdout)
-    directory = Path(info["Dir"])
-    for name in LICENSE_NAMES:
-        if (directory / name).is_file():
-            return directory / name
-    raise SystemExit(f"{path}@{version} ships no license file")
-
-
-def retained_name(path: str) -> str:
-    return path.replace("/", "_") + "_LICENSE"
-
-
 def main() -> None:
-    write = sys.argv[1:] == ["--write"]
     modules = linked_modules()
     notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
-    expected = set()
-    problems = []
-    for path, version in sorted(modules.items()):
-        name = retained_name(path)
-        expected.add(name)
-        source = module_license(path, version).read_bytes()
-        retained = LICENSE_DIR / name
-        if not retained.is_file() or retained.read_bytes() != source:
-            if write:
-                retained.write_bytes(source)
-            else:
-                problems.append(f"{retained.relative_to(ROOT)} is missing or differs from {path}@{version}")
-        if f"third_party_licenses/{name}" not in notices:
-            problems.append(f"THIRD_PARTY_NOTICES.md does not reference third_party_licenses/{name}")
-    for stale in sorted(p.name for p in LICENSE_DIR.iterdir() if p.name not in expected):
-        problems.append(f"third_party_licenses/{stale} belongs to no linked module")
+    present = {path.name for path in LICENSES.iterdir() if path.is_file()}
+    claimed: set[str] = set()
+    problems: list[str] = []
+
+    for module, directory in sorted(modules.items()):
+        prefix = module.replace("/", "_") + "_"
+        files = sorted(name for name in present if name.startswith(prefix))
+        claimed.update(files)
+        if not files:
+            problems.append(f"{module}: no license under third_party_licenses/{prefix}*")
+        for name in files:
+            if f"third_party_licenses/{name}" not in notices:
+                problems.append(f"THIRD_PARTY_NOTICES.md does not reference third_party_licenses/{name}")
+        for upstream in sorted(directory.iterdir()):
+            if not upstream.is_file() or not upstream.name.upper().startswith(LICENSE_PREFIXES):
+                continue
+            copy = LICENSES / (prefix + upstream.name)
+            if not copy.is_file():
+                problems.append(f"{module}: {upstream.name} is not copied to {copy.relative_to(ROOT)}")
+            elif copy.read_bytes() != upstream.read_bytes():
+                problems.append(f"{copy.relative_to(ROOT)} differs from {module}'s {upstream.name}")
+
+    for name in sorted(present - claimed):
+        problems.append(f"third_party_licenses/{name} belongs to no linked module")
+
     if problems:
         raise SystemExit("\n".join(problems))
-    print(f"third_party_licenses=pass files={len(expected)}")
+    print(f"third_party_licenses=pass modules={len(modules)} files={len(claimed)}")
 
 
 if __name__ == "__main__":

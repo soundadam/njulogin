@@ -40,18 +40,6 @@ SSH tunnel. The SSH server can observe destination metadata and traffic timing,
 but not the TLS plaintext. `--insecure` disables local TLS verification only for
 that explicit invocation and emits a warning.
 
-## Private Homebrew source access
-
-The private Homebrew Formula downloads a checksum-pinned GitHub Release asset
-through the GitHub API. `HOMEBREW_GITHUB_API_TOKEN` must grant read access to
-the private repository. Homebrew defers expansion of this sensitive environment
-value until download time; the token is not written into the Formula, source
-archive, build metadata, or installed executable.
-
-Tap CI stores a dedicated repository secret for authenticated source download.
-The secret must not be printed, passed as a command-line value, or made available
-to unrelated workflow jobs.
-
 ## Output and error handling
 
 Normal reports mask accounts, names, and MAC addresses, omit IP addresses, and
@@ -68,6 +56,31 @@ responses, SSH failure, TLS failure, and unverified mutations return nonzero.
 Raw SSH stderr and raw upstream response bodies are not copied into structured
 errors.
 
+## Updates
+
+Update lookup and installation come from
+[appkit](https://github.com/soundadam/appkit#更新). The process makes two kinds
+of request, both to GitHub and both honoring the standard proxy variables:
+`GET https://api.github.com/repos/soundadam/njulogin/releases/latest`, and,
+after `njulogin update`, the download of this platform's archive. An archive
+whose SHA-256 differs from the digest GitHub publishes for it, or that has no
+digest, is not installed. A Cask install is upgraded by `brew`, never replaced
+in place. Development builds neither check nor update.
+
+Unless `njulogin update --auto off` has turned it off, a command whose standard
+error is a terminal, started at least a day after the last check or while a
+newer release is pending, runs the lookup in the background. The result is
+recorded in `update.json` in the `njulogin` directory under the user
+configuration directory (`NJULOGIN_CONFIG_DIR` does not move it). That is
+the directory that holds `config.json` by default, so every command first
+creates it with mode `0700` if it does not exist; an existing directory keeps
+its mode, and a permissive one is rejected when `config.json` is read.
+`update.json` sits beside `config.json` and holds only the check switch, the
+last check time, and the latest version seen.
+
+The release workflow and GitHub Releases are trusted to publish what the tag
+builds; tags and Releases are immutable once published.
+
 ## Trust boundaries
 
 The separate trust boundaries are:
@@ -75,6 +88,7 @@ The separate trust boundaries are:
 - the local operating-system account and credential file;
 - the local `njulogin` process;
 - the local SSH client and its configuration;
+- GitHub Releases and the release workflow, for updates;
 - the SSH server and its forwarding policy;
 - the NJU portal and CAS services.
 

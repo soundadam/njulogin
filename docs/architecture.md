@@ -9,7 +9,8 @@ governed by [`SPEC.md`](../SPEC.md) and
 - `cmd/njulogin` is the entry point; it links the version and calls
   `internal/cli`.
 - `internal/cli` owns cobra command parsing, credential-source selection, and
-  output records. Every command runs once against a `Target`:
+  output records. [appkit](https://github.com/soundadam/appkit) supplies
+  `update` and the update notice. Every command runs once against a `Target`:
   `Local` reaches the portal directly, `SSH` through a tunnel. Local and remote
   operations differ only in the target they receive.
 - `internal/portal` speaks the portal JSON API behind the `portal.API`
@@ -32,20 +33,20 @@ governed by [`SPEC.md`](../SPEC.md) and
   Text inputs can paste from the system clipboard, which runs the local
   platform paste tool (`pbpaste`, `xclip`, `xsel`, or `wl-paste`).
 - `tools/NJUlogin/` contains source-level compatibility and diagnostic wrappers.
-  Homebrew does not install them.
+  Release archives do not include them.
 
 The Go binary owns the product interface. No Python source or remote helper is
 part of the installed product path.
 
 ## Development and acceptance environments
 
-The canonical source tree is on the Elon Linux host. Source edits, tests,
-linting, review, and release preparation occur there. Product source CI runs the
-same service-isolated gate on Linux.
+Source work happens on a branch in any maintainer clone and reaches `main`
+through a pull request. Product source CI runs the same service-isolated gate
+on Linux.
 
-The local macOS machine is an installed-product acceptance environment. It
-receives a candidate through Homebrew and exercises the installed binary. It
-does not act as a second source tree. The normative workflow is defined in
+The maintainer's macOS machine is also the installed-product acceptance
+environment: it receives a candidate through the Homebrew Cask and exercises the
+installed binary. The normative workflow is defined in
 [`docs/development-topology.md`](development-topology.md).
 
 ## Local credential storage

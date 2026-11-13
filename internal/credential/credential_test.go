@@ -183,3 +183,20 @@ func TestTerminalSourceRefusesNonTerminal(t *testing.T) {
 		t.Fatalf("err=%v prompt=%q", err, prompt.String())
 	}
 }
+
+func TestCreateDefaultDirLeavesExistingDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	dir, err := DefaultDir()
+	if err != nil {
+		t.Fatalf("DefaultDir: %v", err)
+	}
+	CreateDefaultDir()
+	requireMode(t, dir, 0o700)
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	CreateDefaultDir()
+	requireMode(t, dir, 0o755)
+}

@@ -20,7 +20,7 @@ if rg -n -e "$argument_pattern" cmd tools scripts; then
 fi
 
 if rg -ni 'keychain-service|remote_qr_bootstrap|NJU_PROXY_URL|PNJU_INSECURE' \
-  cmd README.md SPEC.md AGENTS.md SECURITY.md docs tools/NJUlogin/README.md \
+  cmd README.md SPEC.md SECURITY.md docs tools/NJUlogin/README.md \
   tools/NJUlogin/njulogin-remote.sh; then
   echo "Deleted OS-keyring, remote-bootstrap, and remote-proxy surfaces must not return." >&2
   exit 1

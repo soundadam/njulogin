@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	appkitcli "github.com/soundadam/appkit/go/cli"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
@@ -63,7 +64,32 @@ Run without a command in a terminal to open the interactive interface.`,
 			return nil
 		},
 	})
+	appkitcli.AddCommands(root, a.identity())
+	root.Version = a.effectiveVersion()
+	for _, c := range root.Commands() {
+		if c.Name() == "update" {
+			c.Args = noArgs("update")
+			c.PreRunE = checkUpdateFlags
+		}
+	}
 	return root
+}
+
+// checkUpdateFlags rejects --auto values other than on or off, and --check
+// with --auto, before appkit's update body runs, so both exit as invalid
+// syntax. Cobra would check the flag group only after the pre-run hooks.
+func checkUpdateFlags(cmd *cobra.Command, _ []string) error {
+	auto := cmd.Flags().Lookup("auto")
+	if auto == nil || !auto.Changed {
+		return nil
+	}
+	if cmd.Flags().Changed("check") {
+		return usage.Errorf("update accepts --check or --auto, not both")
+	}
+	if value := auto.Value.String(); value != "on" && value != "off" {
+		return usage.Errorf("--auto takes on or off, not %q", value)
+	}
+	return nil
 }
 
 // configure applies the stream and error policy every command tree shares:

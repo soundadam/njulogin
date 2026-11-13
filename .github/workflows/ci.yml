@@ -16,16 +16,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Source checks (Linux)
-    runs-on:
-      - self-hosted
-      - Linux
-      - X64
-      - njulogin
+  # Mirrors the local gate in CLAUDE.md.
+  check:
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      STATICCHECK_VERSION: v0.7.0
+      # Go 1.27.2 export data needs go-tools f1838cc (x/tools v0.51.0), which no
+      # staticcheck release contains yet; this pins the master commit after it.
+      STATICCHECK_VERSION: v0.7.0-0.dev.0.20261009230814-452d5bb86b45
       ACTIONLINT_VERSION: v1.7.12
       GOVULNCHECK_VERSION: v1.6.0
       SHELLCHECK_VERSION: v0.11.0
@@ -38,11 +36,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
       - name: Verify pinned Go toolchain
         run: |
           set -euo pipefail
           go version
-          test "$(go env GOVERSION)" = "go1.25.12"
+          test "$(go env GOVERSION)" = "$(awk '$1 == "toolchain" { print $2 }' go.mod)"
           ruby --version
 
       - name: Install pinned validation tools

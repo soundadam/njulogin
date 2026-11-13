@@ -17,6 +17,10 @@ rules as executable requirements.
 - Flags use `--name value` or `--name=value`. Boolean flags also accept
   `--name` alone. An unknown flag or an unparseable flag value is invalid
   syntax.
+- `njulogin update --check` changes nothing but the update-check state;
+  `njulogin update --auto on|off` changes nothing but the automatic-check
+  switch; `njulogin update` is the only command that replaces the installed
+  program.
 - Running `njulogin` without a subcommand opens the interactive interface only
   when both standard input and standard output are terminals.
 - Running without a subcommand in a non-terminal context prints usage to
@@ -61,6 +65,7 @@ and environment variables are not public compatibility surfaces.
 | `remote ... quick list` | No additional arguments. |
 | `remote ... quick add` | Required `--name NAME`. |
 | `remote ... quick delete` | Required `--id ID`. |
+| `njulogin update` | Optional `--check` or `--auto on\|off`, not both. |
 | `njulogin version`, `njulogin --version` | No additional arguments. |
 | `njulogin help`, `njulogin --help`, `njulogin -h` | Optional command path, such as `help remote`. |
 | `njulogin completion` | One of `bash`, `zsh`, `fish`, `powershell`. |
@@ -69,11 +74,13 @@ The supported environment inputs are:
 
 | Variable | Contract |
 | --- | --- |
-| `NJULOGIN_CONFIG_DIR` | Overrides the directory containing `config.json`; intended for isolated testing and explicit operator-controlled configuration. |
+| `NJULOGIN_CONFIG_DIR` | Overrides the directory containing `config.json`; intended for isolated testing and explicit operator-controlled configuration. It does not move `update.json` ([security](security.md#updates)). |
 | `NJU_PORTAL_BASE_URL` | Explicit diagnostic/test portal override and default remote portal URL. HTTPS is required except for a loopback HTTP test server. Embedded credentials, queries, and fragments are rejected. |
 
-No proxy, OS keyring, remote-helper, or remote-runtime environment variable is a
-public input.
+Portal, CAS, and SSH-routed traffic never uses a proxy. The standard proxy
+variables (`https_proxy` and related) apply only to the update requests to
+GitHub. No OS keyring, remote-helper, or remote-runtime environment variable is
+a public input.
 
 ## Exit status
 
@@ -109,6 +116,9 @@ The implementation MUST return nonzero when any of these occurs:
   portal response, full account, full MAC address, IP address, or token-bearing
   request URL.
 - Untrusted fields are normalized to one line before they enter stable output.
+- When a newer release is known and standard error is a terminal, one notice
+  line follows the command's output on standard error, unless that command
+  installed it.
 
 ## Stable text records
 
@@ -134,6 +144,7 @@ values MUST NOT be emitted.
 | `quick list` | `quick_login_devices=N` |
 | `quick add` | `result=success` |
 | `quick delete` | `result=success` |
+| `update` | the [appkit](https://github.com/soundadam/appkit#命令行) report of the installed and latest versions, or with `--auto` of the new switch |
 | `version` | exactly `njulogin <version>` |
 
 Remote operations follow the same result contract as their local equivalent.

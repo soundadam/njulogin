@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.2.1 - 2026-10-25
+
+- Select the patched Go 1.27.3 toolchain. Go 1.27.2 is affected by
+  GO-2026-6809 (compromised intermediate certificates trusted by
+  `crypto/x509`), which `govulncheck` reports as reachable through the TLS
+  verification of portal, CAS, and update requests.
+
+## 0.2.0 - 2026-10-11
+
+Contract version 1 ([SPEC.md](SPEC.md)).
+
+- Select the patched Go 1.27.2 toolchain for source and CI builds. The Go 1.25
+  line has no release that fixes GO-2026-5026, GO-2026-5972, GO-2026-6090,
+  GO-2026-6218, GO-2026-6603, GO-2026-6605, GO-2026-6607, GO-2026-6608,
+  GO-2026-6610, GO-2026-6611, GO-2026-6612, GO-2026-6613, or GO-2026-6617,
+  which `govulncheck` reports as reachable from `net/http`, `net/textproto`,
+  `net/url`, `crypto/tls`, and `encoding/asn1`.
+- Accept source changes from any maintainer clone through pull requests to
+  `main`; release acceptance still uses a Homebrew-installed candidate.
+- Publish the source repository.
+- Ship prebuilt `njulogin` archives for macOS and Linux on x86_64 and aarch64
+  with each GitHub Release, and the Homebrew Cask
+  `brew install --cask soundadam/tap/njulogin`; the source-build Formula is
+  not published for new versions. A `v*` tag runs the release workflow, which
+  publishes the Release and pushes the Cask to the tap.
+- Add `njulogin update [--check]`, `njulogin update --auto on|off`, and a
+  once-a-day background update check that runs only when standard error is a
+  terminal, where its notice goes; release lookup and self-update follow
+  [appkit](https://github.com/soundadam/appkit). Proxy variables apply to
+  these GitHub requests only.
+
 ## 0.1.1 - 2026-07-27
 
 - Replace the private Release asset Formula headers with a dedicated Homebrew

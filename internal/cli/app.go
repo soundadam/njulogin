@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	appkit "github.com/soundadam/appkit/go"
+	appkitcli "github.com/soundadam/appkit/go/cli"
+
 	"github.com/soundadam/njulogin/internal/cas"
 	"github.com/soundadam/njulogin/internal/credential"
 	"github.com/soundadam/njulogin/internal/portal"
@@ -58,8 +61,12 @@ func New(version string) *App {
 
 // Main runs args and returns the process exit status.
 func Main(version string, args []string) int {
+	credential.CreateDefaultDir()
 	app := New(version)
-	if err := app.Run(context.Background(), args); err != nil {
+	notice := appkitcli.StartNotice(app.identity())
+	err := app.Run(context.Background(), args)
+	notice.Print(os.Stderr)
+	if err != nil {
 		fmt.Fprintln(app.Stderr, "error:", err)
 		return ExitCode(err)
 	}
@@ -107,6 +114,13 @@ func (a *App) setupSecret() credential.Source {
 		return a.SetupSecret
 	}
 	return credential.Terminal{In: a.Stdin, Prompt: a.Stderr, Label: "NJU credential: ", RequireTerminal: true}
+}
+
+// identity is this program's identity for appkit: release lookup, asset
+// names, the Homebrew Cask, and the update command. It carries the linked
+// version unresolved, so a development build never updates itself.
+func (a *App) identity() appkit.App {
+	return appkit.App{Name: "njulogin", Version: a.Version, Repo: "soundadam/njulogin"}
 }
 
 func (a *App) effectiveVersion() string {

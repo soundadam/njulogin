@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	appkit "github.com/soundadam/appkit/go"
 
 	"github.com/soundadam/njulogin/internal/cas"
 	"github.com/soundadam/njulogin/internal/credential"
@@ -326,6 +329,10 @@ func TestSyntaxErrorsAvoidNetworkWork(t *testing.T) {
 		{"remote", "synthetic-host", "status", "extra"},
 		{"remote", "synthetic-host", "unknown"},
 		{"remote", "synthetic-host", "quick"},
+		{"update", "extra"},
+		{"update", "--unknown-flag"},
+		{"update", "--check", "--auto", "off"},
+		{"update", "--auto", "maybe"},
 	} {
 		_, err := app.run(t, args...)
 		if !usage.Is(err) || ExitCode(err) != 2 {
@@ -606,6 +613,59 @@ func TestResolveVersionPrefersLinkerThenModuleVersion(t *testing.T) {
 	for _, c := range cases {
 		if got := resolveVersion(c.linked, c.info); got != c.want {
 			t.Errorf("resolveVersion(%q) = %q, want %q", c.linked, got, c.want)
+		}
+	}
+}
+
+// useSyntheticUserConfigDir points os.UserConfigDir at a temporary directory
+// and returns njulogin's default configuration directory inside it.
+func useSyntheticUserConfigDir(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	dir, err := credential.DefaultDir()
+	if err != nil {
+		t.Fatalf("DefaultDir: %v", err)
+	}
+	return dir
+}
+
+func TestUpdateStateSharesPrivateDefaultConfigDir(t *testing.T) {
+	dir := useSyntheticUserConfigDir(t)
+	app := newTestApp(t, "")
+	credential.CreateDefaultDir()
+	appkit.LoadAutoCheck(app.identity()).SetEnabled(true)
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("appkit state not written to %s: entries=%v err=%v", dir, entries, err)
+	}
+	if info, err := os.Lstat(dir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("directory after update state write = %v, %v; want mode 0700", info, err)
+	}
+	path, err := credential.DefaultPath("")
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	store := credential.FileStore{Path: path}
+	if err := store.Save(credential.Credential{Username: "synthetic-user", Password: "synthetic-secret"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	appkit.LoadAutoCheck(app.identity()).SetEnabled(true)
+	if saved, err := store.Load(); err != nil || saved == nil {
+		t.Fatalf("Load beside update state: %v, %v", saved, err)
+	}
+}
+
+func TestUpdateAutoTogglesAutomaticChecks(t *testing.T) {
+	useSyntheticUserConfigDir(t)
+	app := newTestApp(t, "")
+	for _, value := range []string{"off", "on"} {
+		if output, err := app.run(t, "update", "--auto", value); err != nil || output != "Automatic update checks are "+value+".\n" {
+			t.Fatalf("update --auto %s: %q, %v", value, output, err)
+		}
+		if got := appkit.LoadAutoCheck(app.identity()).Enabled(); got != (value == "on") {
+			t.Fatalf("after --auto %s, enabled = %v", value, got)
 		}
 	}
 }
