@@ -9,8 +9,14 @@ rules as executable requirements.
 
 ## Invocation rules
 
-- `njulogin help`, `njulogin --help`, and `njulogin -h` are read-only.
+- `njulogin help [command]`, `njulogin --help`, `njulogin -h`, and `-h` or
+  `--help` after any command are read-only and write help to standard output.
 - `njulogin version` and `njulogin --version` are read-only.
+- `njulogin completion bash|zsh|fish|powershell` is read-only and writes a
+  shell completion script to standard output.
+- Flags use `--name value` or `--name=value`. Boolean flags also accept
+  `--name` alone. An unknown flag or an unparseable flag value is invalid
+  syntax.
 - `njulogin update --check` changes nothing but the update-check state;
   `njulogin update --auto on|off` changes nothing but the automatic-check
   switch; `njulogin update` is the only command that replaces the installed
@@ -21,6 +27,14 @@ rules as executable requirements.
   standard error and exits with status 2.
 - Interactive mode is only a presentation layer over documented commands. It
   MUST NOT expose additional operations or weaker validation.
+- The interactive interface is a full-screen terminal UI. It renders on
+  standard error when that is a terminal and otherwise on standard output. It
+  asks for the target (this machine or an SSH host, validated like `remote`),
+  shows the redacted `info` view, and runs `login`, `qr`, `logout`, `kick`,
+  `quick add`, `quick delete`, and `setup` through the same code as the
+  commands. `kick` and `quick delete` require choosing a displayed row and
+  confirming; `logout` requires confirmation. Typed passwords are masked and
+  are passed to `login` or `setup` as an explicit credential source.
 
 ## Normative invocation surface
 
@@ -30,7 +44,7 @@ and environment variables are not public compatibility surfaces.
 
 | Invocation | Supported inputs |
 | --- | --- |
-| `njulogin` | No arguments; terminal-only interactive presentation. |
+| `njulogin` | No arguments; terminal-only interactive interface. |
 | `njulogin setup` | Optional `--username USER`; prompts for the credential without echo and writes the local credential file. |
 | `njulogin status` | No arguments. |
 | `njulogin info` | No arguments. |
@@ -53,7 +67,8 @@ and environment variables are not public compatibility surfaces.
 | `remote ... quick delete` | Required `--id ID`. |
 | `njulogin update` | Optional `--check` or `--auto on\|off`, not both. |
 | `njulogin version`, `njulogin --version` | No additional arguments. |
-| `njulogin help`, `njulogin --help`, `njulogin -h` | No additional arguments. |
+| `njulogin help`, `njulogin --help`, `njulogin -h` | Optional command path, such as `help remote`. |
+| `njulogin completion` | One of `bash`, `zsh`, `fish`, `powershell`. |
 
 The supported environment inputs are:
 
@@ -93,7 +108,8 @@ The implementation MUST return nonzero when any of these occurs:
 
 ## Output streams
 
-- Standard output contains command results only.
+- Standard output contains command results, requested help, and completion
+  scripts only.
 - Standard error contains prompts, warnings, usage errors, and diagnostics.
 - Password prompts and interactive questions are written to standard error.
 - Error messages MUST NOT echo a password, cookie, QR URL, token, complete

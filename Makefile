@@ -13,10 +13,10 @@ build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/njulogin ./cmd/njulogin
 
 fmt:
-	gofmt -w cmd/njulogin/*.go
+	gofmt -w cmd internal
 
 fmt-check:
-	test -z "$$(gofmt -l cmd/njulogin/*.go)"
+	test -z "$$(gofmt -l cmd internal)"
 
 test:
 	go test ./...

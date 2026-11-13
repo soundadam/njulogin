@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package main
+package proc
 
 import (
 	"context"
@@ -10,7 +10,9 @@ import (
 	"syscall"
 )
 
-func newCommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+// Command starts name in its own process group and kills the whole group when
+// ctx ends, so helpers spawned by the child cannot outlive it.
+func Command(ctx context.Context, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {

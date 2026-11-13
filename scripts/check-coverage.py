@@ -5,29 +5,32 @@ import subprocess
 import sys
 
 
+# Keys are "<path relative to the module>:<function>"; methods appear without
+# their receiver, so the file disambiguates them.
 CRITICAL_FUNCTIONS = {
-    "setupCommand",
-    "statusCommand",
-    "infoCommand",
-    "loginCommand",
-    "resolveLoginCredential",
-    "qrCommand",
-    "qrCommandWithClient",
-    "finishQRLogin",
-    "logoutCommand",
-    "kickCommand",
-    "quickCommand",
-    "remoteCommand",
-    "remoteStatusCommand",
-    "remoteLoginCommand",
-    "remoteLogoutCommand",
-    "remoteInfoCommand",
-    "remoteQuickCommand",
-    "remoteKickCommand",
-    "remoteQRCommand",
-    "newSSHHTTPClient",
-    "dialSSHTunnel",
-    "run",
+    "internal/cli/commands.go:Run",
+    "internal/cli/commands.go:remoteCommand",
+    "internal/cli/commands.go:operationCommands",
+    "internal/cli/ops.go:setup",
+    "internal/cli/ops.go:status",
+    "internal/cli/ops.go:info",
+    "internal/cli/ops.go:login",
+    "internal/cli/ops.go:resolveCredential",
+    "internal/cli/ops.go:logout",
+    "internal/cli/ops.go:kick",
+    "internal/cli/ops.go:quickList",
+    "internal/cli/ops.go:quickAdd",
+    "internal/cli/ops.go:quickDelete",
+    "internal/cli/ops.go:qr",
+    "internal/cli/target.go:HTTPClient",
+    "internal/cas/cas.go:Run",
+    "internal/cas/cas.go:submit",
+    "internal/credential/store.go:Load",
+    "internal/credential/store.go:Save",
+    "internal/sshtunnel/sshtunnel.go:DialContext",
+    "internal/transport/transport.go:NewHTTPClient",
+    "internal/cli/tui.go:connect",
+    "internal/tui/model.go:Update",
 }
 
 
@@ -47,12 +50,14 @@ def main() -> int:
 
     functions: dict[str, float] = {}
     total = None
-    function_pattern = re.compile(r"^.+?:\d+:\s+(\S+)\s+([0-9.]+)%$")
+    function_pattern = re.compile(r"^github\.com/soundadam/njulogin/(.+?):\d+:\s+(\S+)\s+([0-9.]+)%$")
     total_pattern = re.compile(r"^total:.*\s([0-9.]+)%$")
     for line in result.stdout.splitlines():
         match = function_pattern.match(line)
         if match:
-            functions[match.group(1)] = float(match.group(2))
+            key = f"{match.group(1)}:{match.group(2)}"
+            # Two Target implementations share target.go:HTTPClient; require both.
+            functions[key] = min(functions.get(key, 100.0), float(match.group(3)))
             continue
         match = total_pattern.match(line)
         if match:

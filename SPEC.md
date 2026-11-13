@@ -158,6 +158,7 @@ njulogin remote <ssh-host> quick delete
 njulogin update
 njulogin version
 njulogin help
+njulogin completion
 ```
 
 Undocumented aliases, probes, OS-keyring variants, proxy controls, and

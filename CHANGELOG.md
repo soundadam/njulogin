@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Open a full-screen interface for bare `njulogin` in a terminal: choose this
+  machine or an SSH host, see the redacted status, online-session, and
+  quick-login lists, and run operations from one screen. Kick and quick-login
+  delete select a displayed row and confirm.
+- Give each command its own help (`njulogin help <command>`, or `-h` after any
+  command, on standard output) and add `njulogin completion
+  bash|zsh|fish|powershell`.
+- Print numeric online-session and quick-login ids with every digit; a 14-digit
+  id was printed in floating-point form that `quick delete --id` could not use.
+- Select the patched Go 1.27.4 toolchain. Go 1.27.3 is affected by
+  GO-2026-6859 in `net/http`, which `govulncheck` reports as reachable through
+  portal, CAS, and update requests.
+
 ## 0.2.1 - 2026-10-25
 
 - Select the patched Go 1.27.3 toolchain. Go 1.27.2 is affected by
