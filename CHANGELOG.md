@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-11-12
+
+Contract version 1 ([SPEC.md](SPEC.md)).
 
 - Open a full-screen interface for bare `njulogin` in a terminal: choose this
   machine or an SSH host, see the redacted status, online-session, and

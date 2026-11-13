@@ -14,7 +14,7 @@ registry:
   homebrew: soundadam/tap/njulogin
   docs: https://github.com/soundadam/njulogin#readme
 release:
-  version: "0.2.1"
+  version: "0.3.0"
   license: MIT
 modules:
   - type: promo
