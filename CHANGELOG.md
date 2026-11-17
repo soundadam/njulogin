@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- License the project under Apache-2.0 (`LICENSE`, with attribution in
+  `NOTICE`).
+
 ## 0.3.0 - 2026-11-12
 
 Contract version 1 ([SPEC.md](SPEC.md)).
