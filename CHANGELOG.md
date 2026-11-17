@@ -3,8 +3,7 @@
 ## Unreleased
 
 - License the project under Apache-2.0 (`LICENSE`, with attribution in
-  `NOTICE`). 0.3.0 and earlier releases stay under the MIT License they
-  shipped with.
+  `NOTICE`).
 
 ## 0.3.0 - 2026-11-12
 

@@ -15,7 +15,7 @@ registry:
   docs: https://github.com/soundadam/njulogin#readme
 release:
   version: "0.3.0"
-  license: MIT
+  license: Apache-2.0
 modules:
   - type: promo
     description: "不开浏览器登录南大校园网。`njulogin login` 用保存的密码登录，`njulogin qr` 在终端里画出统一身份认证的二维码，用南京大学 App 扫码即可；`status`、`logout`、`kick` 覆盖认证页上其余的操作。"
