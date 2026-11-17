@@ -196,7 +196,8 @@ tag are in [release readiness](docs/release-readiness.md).
 
 ## License
 
-The standalone implementation is licensed under the MIT License. It was
+The standalone implementation is licensed under the Apache License 2.0;
+releases up to 0.3.0 stay under the MIT License they shipped with. It was
 informed by the MIT-licensed
 [Do1e/NJUlogin](https://github.com/Do1e/NJUlogin) project; see
 [`NOTICE`](NOTICE) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
