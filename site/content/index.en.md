@@ -15,7 +15,7 @@ registry:
   docs: https://github.com/soundadam/njulogin#readme
 release:
   version: "0.3.0"
-  license: Apache-2.0
+  license: MIT
 modules:
   - type: promo
     description: "Log in to NJU's campus network portal without a browser. `njulogin login` uses a saved password, `njulogin qr` draws the CAS QR code in the terminal for the NJU app to scan, and `status`, `logout` and `kick` cover the rest of what the portal page does."
